@@ -172,9 +172,9 @@ unubi_analyze_ec_hdr(struct eb_info *first, const char *path)
 		    (crc != be32_to_cpu(cur->ec.hdr_crc)))
 			fprintf(fpdata, "# ");
 
-		fprintf(fpdata, "%zu %lu %lu", count,
-			be64_to_cpu(cur->ec.ec),
-			erase_counts[count]);
+		fprintf(fpdata, "%zu %llu %llu", count,
+			(unsigned long long)be64_to_cpu(cur->ec.ec),
+			(unsigned long long)erase_counts[count]);
 
 		if (be32_to_cpu(cur->ec.magic) != UBI_EC_HDR_MAGIC)
 			fprintf(fpdata, " ## bad magic: %08x",
@@ -213,8 +213,8 @@ unubi_analyze_ec_hdr(struct eb_info *first, const char *path)
 
 	fprintf(fpplot, "set ylabel \"erase count\"\n");
 	fprintf(fpplot, "set xrange [-1:%zu]\n", eraseblocks + 1);
-	fprintf(fpplot, "# set yrange [-1:%lu]\n",
-		erase_counts[eraseblocks - 1] + 1);
+	fprintf(fpplot, "# set yrange [-1:%llu]\n",
+		(unsigned long long)erase_counts[eraseblocks - 1] + 1);
 	fprintf(fpplot, "plot \"%s\" u 1:2 t \"unsorted: %s\" with boxes\n",
 		FN_EH_DATA, FN_EH_DATA);
 	fprintf(fpplot, "# replot \"%s\" u 1:3 t \"sorted: %s\" with lines\n",

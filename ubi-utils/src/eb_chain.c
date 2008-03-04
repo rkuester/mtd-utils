@@ -219,9 +219,9 @@ eb_chain_print(FILE* stream, struct eb_info *head)
 		if (cur->vid.vol_type == UBI_VID_STATIC)
 			fprintf(stream, "%-4s", cur->data_crc_ok ? "ok":"bad");
 		else	fprintf(stream, "%-4s", cur->data_crc_ok ? "ok":"ign");
-		fprintf(stream, " %-4d %08x %-8u %-8lu\n", cur->phys_block,
+		fprintf(stream, " %-4d %08x %-8u %-8llu\n", cur->phys_block,
 			cur->phys_addr, be32_to_cpu(cur->vid.data_size),
-			be64_to_cpu(cur->ec.ec));
+			(unsigned long long)be64_to_cpu(cur->ec.ec));
 
 		hist = cur->older;
 		while (hist != NULL) {
@@ -234,10 +234,10 @@ eb_chain_print(FILE* stream, struct eb_info *head)
 			if (hist->vid.vol_type == UBI_VID_STATIC)
 				fprintf(stream, "%-4s", hist->data_crc_ok ? "ok":"bad");
 			else	fprintf(stream, "%-4s", hist->data_crc_ok ? "ok":"ign");
-			fprintf(stream, " %-4d %08x %-8u %-8lu (*)\n",
+			fprintf(stream, " %-4d %08x %-8u %-8llu (*)\n",
 				hist->phys_block, hist->phys_addr,
 				be32_to_cpu(hist->vid.data_size),
-				be64_to_cpu(hist->ec.ec));
+				(unsigned long long)be64_to_cpu(hist->ec.ec));
 
 			hist = hist->older;
 		}

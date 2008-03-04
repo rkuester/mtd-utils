@@ -1,3 +1,21 @@
+mtd-utils (20080224-1) UNRELEASED; urgency=low
+
+  [ Otavio Salvador ]
+  * import debian/ from 20061007-1 package
+  * change source and binary packages to mtd-utils, following upstream
+  * add myself as uploader
+  * add liblzo2-dev as build-dependency
+  * unubi.c: fix compilation with gcc 4.2.3
+  * unubi_analyze.c: fix compilation warnings with gcc 4.2.3
+  * eb_chain.c: fix compilation warnings with gcc 4.2.3
+  * properly install files on the package
+  * ubi-utils: fix compilation warnings in unubi.c when using gcc 4.2.3
+
+  [ Riku Voipio ]
+  * Add homepage: and Vcs: fields
+
+ -- Riku Voipio <riku.voipio@iki.fi>  Tue, 04 Mar 2008 00:50:03 +0200
+
 mtd (20061007-1) unstable; urgency=low
 
   * New upstream snapshot, Closes: #391095
