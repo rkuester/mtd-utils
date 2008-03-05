@@ -19,3 +19,11 @@ Description: memory Technology Device Tools
  Tools for manipulating memory technology devices, such as flash
  memory, Disk-On-Chip, or ROM.  Includes mkfs.jffs2, a tool to
  create JFFS2 (journaling flash file system) filesystems.
+
+Package: mtd-tools
+Architecture: all
+Depends: mtd-utils
+Description: dummy package for transition purposes
+ This package is a dummy package for transition purposes, and only
+ exists to depend on mtd-utils.  You may safely remove it if it will
+ not remove other packages.
