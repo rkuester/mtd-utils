@@ -1,4 +1,4 @@
-mtd-utils (20080224-1) UNRELEASED; urgency=low
+mtd-utils (20080224-1) unstable; urgency=low
 
   [ Otavio Salvador ]
   * import debian/ from 20061007-1 package
@@ -10,11 +10,16 @@ mtd-utils (20080224-1) UNRELEASED; urgency=low
   * eb_chain.c: fix compilation warnings with gcc 4.2.3
   * properly install files on the package
   * ubi-utils: fix compilation warnings in unubi.c when using gcc 4.2.3
+  * add a transitional package to easy upgrades
+  * update package description since it has been renamed
 
   [ Riku Voipio ]
   * Add homepage: and Vcs: fields
 
- -- Riku Voipio <riku.voipio@iki.fi>  Tue, 04 Mar 2008 00:50:03 +0200
+  [ David Woodhouse ]
+  * Fix recv_image compilation with new glibc
+
+ -- Otavio Salvador <otavio@ossystems.com.br>  Wed, 05 Mar 2008 17:35:13 -0300
 
 mtd (20061007-1) unstable; urgency=low
 
