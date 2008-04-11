@@ -1,3 +1,24 @@
+mtd-utils (20080411-1) unstable; urgency=low
+
+  [ Artem Bityutskiy ]
+  * ubi-utils: fix printing typos
+
+  [ Hamish Moffatt ]
+  * ubi-utils: don't use argp.h
+
+  [ Otavio Salvador ]
+  * do not ignore make clean failures during build
+
+  [ Riku Voipio ]
+  * Use LSB locations for manpages
+  * compr_lzo.c: allocate enough memory for lzo compressor.
+  * Actually include some information in the copyright file
+
+  [ Zoltan Sogor ]
+  * ubi-utils: fix wrong variable printout
+
+ -- Riku Voipio <riku.voipio@iki.fi>  Fri, 11 Apr 2008 13:17:14 +0300
+
 mtd-utils (20080224-1) unstable; urgency=low
 
   [ Otavio Salvador ]
