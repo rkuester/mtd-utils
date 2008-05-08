@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Artem Bityutskiy, 2007
+ * Copyright (c) Artem Bityutskiy, 2007, 2008
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,25 +40,38 @@ extern "C" {
 #define normsg(fmt, ...) do {                              \
 	printf(PROGRAM_NAME ": " fmt "\n", ##__VA_ARGS__); \
 } while(0)
+#define normsg_cont(fmt, ...) do {                    \
+	printf(PROGRAM_NAME ": " fmt, ##__VA_ARGS__); \
+} while(0)
+#define normsg_cont(fmt, ...) do {                         \
+	printf(PROGRAM_NAME ": " fmt, ##__VA_ARGS__);      \
+} while(0)
 
 /* Error messages */
-#define errmsg(fmt, ...)  ({                                              \
-	fprintf(stderr, PROGRAM_NAME " error: " fmt "\n", ##__VA_ARGS__); \
-	-1;                                                               \
+#define errmsg(fmt, ...)  ({                                                \
+	fprintf(stderr, PROGRAM_NAME ": error!: " fmt "\n", ##__VA_ARGS__); \
+	-1;                                                                 \
 })
 
 /* System error messages */
-#define sys_errmsg(fmt, ...)  ({                                          \
-	int _err = errno;                                                 \
-	fprintf(stderr, PROGRAM_NAME " error: " fmt "\n", ##__VA_ARGS__); \
-	fprintf(stderr, "error %d (%s)\n", _err, strerror(_err));         \
-	-1;                                                               \
+#define sys_errmsg(fmt, ...)  ({                                            \
+	int _err = errno, _i;                                               \
+	fprintf(stderr, PROGRAM_NAME ": error!: " fmt "\n", ##__VA_ARGS__); \
+	for (_i = 0; _i < sizeof(PROGRAM_NAME) + 1; _i++)                   \
+		fprintf(stderr, " ");                                       \
+	fprintf(stderr, "error %d (%s)\n", _err, strerror(_err));           \
+	-1;                                                                 \
 })
 
 /* Warnings */
-#define warnmsg(fmt, ...) do {                                              \
-	fprintf(stderr, PROGRAM_NAME " warning: " fmt "\n", ##__VA_ARGS__); \
+#define warnmsg(fmt, ...) do {                                                \
+	fprintf(stderr, PROGRAM_NAME ": warning!: " fmt "\n", ##__VA_ARGS__); \
 } while(0)
+
+static inline int is_power_of_2(unsigned long long n)
+{
+	        return (n != 0 && ((n & (n - 1)) == 0));
+}
 
 long long ubiutils_get_bytes(const char *str);
 void ubiutils_print_bytes(long long bytes, int bracket);

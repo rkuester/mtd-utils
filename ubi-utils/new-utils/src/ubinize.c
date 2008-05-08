@@ -24,12 +24,14 @@
  *          Oliver Lohmann
  */
 
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <getopt.h>
-#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/stat.h>
+#include <fcntl.h>
 
 #include <mtd/ubi-header.h>
 #include <libubigen.h>
@@ -49,7 +51,7 @@ static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
 "parameters, do not specify them and let the utility to use default values.";
 
 static const char *optionsstr =
-"-o, --output=<file name>     output file name (default is stdout)\n"
+"-o, --output=<file name>     output file name\n"
 "-p, --peb-size=<bytes>       size of the physical eraseblock of the flash\n"
 "                             this UBI image is created for in bytes,\n"
 "                             kilobytes (KiB), or megabytes (MiB)\n"
@@ -61,14 +63,14 @@ static const char *optionsstr =
 "                             flash (equivalent to the minimum input/output\n"
 "                             unit size by default)\n"
 "-O, --vid-hdr-offset=<num>   offset if the VID header from start of the\n"
-"                             physical eraseblock (default is the second\n"
-"                             minimum I/O unit or sub-page, if it was\n"
-"                             specified)\n"
+"                             physical eraseblock (default is the next\n"
+"                             minimum I/O unit or sub-page after the EC\n"
+"                             header)\n"
 "-e, --erase-counter=<num>    the erase counter value to put to EC headers\n"
 "                             (default is 0)\n"
 "-x, --ubi-ver=<num>          UBI version number to put to EC headers\n"
 "                             (default is 1)\n"
-"-v  --verbose                be verbose\n"
+"-v, --verbose                be verbose\n"
 "-h, --help                   print help message\n"
 "-V, --version                print program version";
 
@@ -119,7 +121,7 @@ struct option long_options[] = {
 	{ .name = "vid-hdr-offset", .has_arg = 1, .flag = NULL, .val = 'O' },
 	{ .name = "erase-counter",  .has_arg = 1, .flag = NULL, .val = 'e' },
 	{ .name = "ubi-ver",        .has_arg = 1, .flag = NULL, .val = 'x' },
-	{ .name = "verbose",        .has_arg = 1, .flag = NULL, .val = 'v' },
+	{ .name = "verbose",        .has_arg = 0, .flag = NULL, .val = 'v' },
 	{ .name = "help",           .has_arg = 0, .flag = NULL, .val = 'h' },
 	{ .name = "version",        .has_arg = 0, .flag = NULL, .val = 'V' },
 	{ NULL, 0, NULL, 0}
@@ -128,7 +130,7 @@ struct option long_options[] = {
 struct args {
 	const char *f_in;
 	const char *f_out;
-	FILE *fp_out;
+	int out_fd;
 	int peb_size;
 	int min_io_size;
 	int subpage_size;
@@ -140,14 +142,10 @@ struct args {
 };
 
 static struct args args = {
-	.f_out        = NULL,
 	.peb_size     = -1,
 	.min_io_size  = -1,
 	.subpage_size = -1,
-	.vid_hdr_offs = 0,
-	.ec           = 0,
 	.ubi_ver      = 1,
-	.verbose      = 0,
 };
 
 static int parse_opt(int argc, char * const argv[])
@@ -162,9 +160,10 @@ static int parse_opt(int argc, char * const argv[])
 
 		switch (key) {
 		case 'o':
-			args.fp_out = fopen(optarg, "wb");
-			if (!args.fp_out)
-				return errmsg("cannot open file \"%s\"", optarg);
+			args.out_fd = open(optarg, O_CREAT | O_TRUNC | O_WRONLY,
+					   S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP | S_IROTH);
+			if (args.out_fd == -1)
+				return sys_errmsg("cannot open file \"%s\"", optarg);
 			args.f_out = optarg;
 			break;
 
@@ -178,29 +177,33 @@ static int parse_opt(int argc, char * const argv[])
 			args.min_io_size = ubiutils_get_bytes(optarg);
 			if (args.min_io_size <= 0)
 				return errmsg("bad min. I/O unit size: \"%s\"", optarg);
+			if (!is_power_of_2(args.min_io_size))
+				return errmsg("min. I/O unit size should be power of 2");
 			break;
 
 		case 's':
 			args.subpage_size = ubiutils_get_bytes(optarg);
 			if (args.subpage_size <= 0)
 				return errmsg("bad sub-page size: \"%s\"", optarg);
+			if (!is_power_of_2(args.subpage_size))
+				return errmsg("sub-page size should be power of 2");
 			break;
 
 		case 'O':
 			args.vid_hdr_offs = strtoul(optarg, &endp, 0);
-			if (endp == optarg || args.vid_hdr_offs < 0)
+			if (*endp != '\0' || endp == optarg || args.vid_hdr_offs < 0)
 				return errmsg("bad VID header offset: \"%s\"", optarg);
 			break;
 
 		case 'e':
 			args.ec = strtoul(optarg, &endp, 0);
-			if (endp == optarg || args.ec < 0)
+			if (*endp != '\0' || endp == optarg || args.ec < 0)
 				return errmsg("bad erase counter value: \"%s\"", optarg);
 			break;
 
 		case 'x':
 			args.ubi_ver = strtoul(optarg, &endp, 0);
-			if (endp == optarg || args.ubi_ver < 0)
+			if (*endp != '\0'  || endp == optarg || args.ubi_ver < 0)
 				return errmsg("bad UBI version: \"%s\"", optarg);
 			break;
 
@@ -236,22 +239,39 @@ static int parse_opt(int argc, char * const argv[])
 	if (args.peb_size < 0)
 		return errmsg("physical eraseblock size was not specified (use -h for help)");
 
+	if (args.peb_size > 1024*1024)
+		return errmsg("too high physical eraseblock size %d", args.peb_size);
+
 	if (args.min_io_size < 0)
 		return errmsg("min. I/O unit size was not specified (use -h for help)");
 
 	if (args.subpage_size < 0)
 		args.subpage_size = args.min_io_size;
 
-	if (!args.f_out) {
-		args.f_out = "stdout";
-		args.fp_out = stdout;
+	if (args.subpage_size > args.min_io_size)
+		return errmsg("sub-page cannot be larger then min. I/O unit");
+
+	if (args.peb_size % args.min_io_size)
+		return errmsg("physical eraseblock should be multiple of min. I/O units");
+
+	if (args.min_io_size % args.subpage_size)
+		return errmsg("min. I/O unit size should be multiple of sub-page size");
+
+	if (!args.f_out)
+		return errmsg("output file was not specified (use -h for help)");
+
+	if (args.vid_hdr_offs) {
+		if (args.vid_hdr_offs + UBI_VID_HDR_SIZE >= args.peb_size)
+			return errmsg("bad VID header position");
+		if (args.vid_hdr_offs % 8)
+			return errmsg("VID header offset has to be multiple of min. I/O unit size");
 	}
 
 	return 0;
 }
 
-int read_section(const char *sname, struct ubigen_vol_info *vi,
-		 const char **img)
+static int read_section(const char *sname, struct ubigen_vol_info *vi,
+			const char **img)
 {
 	char buf[256];
 	const char *p;
@@ -322,8 +342,7 @@ int read_section(const char *sname, struct ubigen_vol_info *vi,
 		if (vi->bytes == 0)
 			return errmsg("file \"%s\" referred from section \"%s\" is empty", *img, sname);
 
-		printf(PROGRAM_NAME ": volume size was not specified in"
-		       "section \"%s\", assume ", sname);
+		normsg_cont("volume size was not specified in section \"%s\", assume ", sname);
 		ubiutils_print_bytes(vi->bytes, 1);
 		printf("\n");
 	}
@@ -332,7 +351,7 @@ int read_section(const char *sname, struct ubigen_vol_info *vi,
 	sprintf(buf, "%s:vol_type", sname);
 	p = iniparser_getstring(args.dict, buf, NULL);
 	if (!p) {
-		normsg(": volume type was not specified in "
+		normsg("volume type was not specified in "
 		       "section \"%s\", assume \"dynamic\"\n", sname);
 		vi->type = UBI_VID_DYNAMIC;
 	} else {
@@ -399,9 +418,10 @@ static void init_vol_info(const struct ubigen_info *ui,
 
 int main(int argc, char * const argv[])
 {
-	int err = -1, sects, i, volumes;
+	int err = -1, sects, i, volumes, autoresize_was_already = 0;
 	struct ubigen_info ui;
 	struct ubi_vtbl_record *vtbl;
+	off_t seek;
 
 	err = parse_opt(argc, argv);
 	if (err)
@@ -409,12 +429,14 @@ int main(int argc, char * const argv[])
 
 	ubigen_info_init(&ui, args.peb_size, args.min_io_size,
 			 args.subpage_size, args.vid_hdr_offs,
-			 args.ubi_ver, args.ec);
+			 args.ubi_ver);
 
-	verbose(args.verbose, "LEB size:    %d", ui.leb_size);
-	verbose(args.verbose, "PEB size:    %d", ui.peb_size);
-	verbose(args.verbose, "min_io_size: %d", ui.min_io_size);
-	verbose(args.verbose, "VID offset:  %d", ui.vid_hdr_offs);
+	verbose(args.verbose, "LEB size:      %d", ui.leb_size);
+	verbose(args.verbose, "PEB size:      %d", ui.peb_size);
+	verbose(args.verbose, "min. I/O size: %d", ui.min_io_size);
+	verbose(args.verbose, "sub-page size: %d", ui.min_io_size);
+	verbose(args.verbose, "VID offset:    %d", ui.vid_hdr_offs);
+	verbose(args.verbose, "data offset:   %d", ui.data_offs);
 
 	vtbl = ubigen_create_empty_vtbl(&ui);
 	if (!vtbl)
@@ -445,8 +467,9 @@ int main(int argc, char * const argv[])
 	 * Skip 2 PEBs at the beginning of the file for the volume table which
 	 * will be written later.
 	 */
-	if (fseek(args.fp_out, ui.peb_size * 2, SEEK_SET) == -1) {
-		errmsg("cannot seek file \"%s\"", args.f_out);
+	seek = ui.peb_size * 2;
+	if (lseek(args.out_fd, seek, SEEK_SET) != seek) {
+		sys_errmsg("cannot seek file \"%s\"", args.f_out);
 		goto out_dict;
 	}
 
@@ -455,7 +478,7 @@ int main(int argc, char * const argv[])
 		struct ubigen_vol_info vi;
 		const char *img = NULL;
 		struct stat st;
-		FILE *f;
+		int fd;
 
 		if (!sname) {
 			errmsg("ini-file parsing error (iniparser_getsecname)");
@@ -473,7 +496,19 @@ int main(int argc, char * const argv[])
 			volumes += 1;
 		init_vol_info(&ui, &vi);
 
+		if (vi.id >= ui.max_volumes)
+			return errmsg("too high volume ID %d, max. is %d",
+				      vi.id, ui.max_volumes);
+
 		verbose(args.verbose, "adding volume %d", vi.id);
+
+		/* Make sure only one volume has auto-resize flag */
+		if (vi.flags & UBI_VTBL_AUTORESIZE_FLG) {
+			if (autoresize_was_already)
+				return errmsg("only one volume is allowed "
+					      "to have auto-resize flag");
+			autoresize_was_already = 1;
+		}
 
 		err = ubigen_add_volume(&ui, &vi, vtbl);
 		if (err) {
@@ -499,8 +534,8 @@ int main(int argc, char * const argv[])
 			goto out_dict;
 		}
 
-		f = fopen(img, "r");
-		if (!f) {
+		fd = open(img, O_RDONLY);
+		if (fd == -1) {
 			sys_errmsg("cannot open \"%s\"", img);
 			goto out_dict;
 		}
@@ -508,8 +543,8 @@ int main(int argc, char * const argv[])
 		verbose(args.verbose, "writing volume %d", vi.id);
 		verbose(args.verbose, "image file: %s", img);
 
-		err = ubigen_write_volume(&ui, &vi, st.st_size, f, args.fp_out);
-		fclose(f);
+		err = ubigen_write_volume(&ui, &vi, args.ec, st.st_size, fd, args.out_fd);
+		close(fd);
 		if (err) {
 			errmsg("cannot write volume for section \"%s\"", sname);
 			goto out_dict;
@@ -521,12 +556,7 @@ int main(int argc, char * const argv[])
 
 	verbose(args.verbose, "writing layout volume");
 
-	if (fseek(args.fp_out, 0, SEEK_SET) == -1) {
-		errmsg("cannot seek file \"%s\"", args.f_out);
-		goto out_dict;
-	}
-
-	err = ubigen_write_layout_vol(&ui, vtbl, args.fp_out);
+	err = ubigen_write_layout_vol(&ui, 0, 1, args.ec, args.ec, vtbl, args.out_fd);
 	if (err) {
 		errmsg("cannot write layout volume");
 		goto out_dict;
@@ -536,7 +566,7 @@ int main(int argc, char * const argv[])
 
 	iniparser_freedict(args.dict);
 	free(vtbl);
-	fclose(args.fp_out);
+	close(args.out_fd);
 	return 0;
 
 out_dict:
@@ -544,7 +574,7 @@ out_dict:
 out_vtbl:
 	free(vtbl);
 out:
-	fclose(args.fp_out);
+	close(args.out_fd);
 	remove(args.f_out);
 	return err;
 }

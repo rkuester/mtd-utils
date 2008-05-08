@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
- * Author: Artem B. Bityutskiy
+ * Author: Artem Bityutskiy
  *
  * UBI (Unsorted Block Images) library.
  */
@@ -29,20 +29,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Error messages */
-#define errmsg(fmt, ...)  ({                                       \
-        fprintf(stderr, "libubi error: " fmt "\n", ##__VA_ARGS__); \
-	-1;                                                        \
-})
-
-/* System error messages */
-#define sys_errmsg(fmt, ...)  ({                                   \
-	int _err = errno;                                          \
-	fprintf(stderr, "libubi error: " fmt "\n", ##__VA_ARGS__); \
-	fprintf(stderr, "error %d (%s)\n", _err, strerror(_err));  \
-	-1;                                                        \
-})
 
 /*
  * The below are pre-define UBI file and directory names.

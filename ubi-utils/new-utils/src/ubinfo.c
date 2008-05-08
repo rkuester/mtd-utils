@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Nokia Corporation.
+ * Copyright (C) 2007, 2008 Nokia Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 as published by
@@ -366,7 +366,7 @@ int main(int argc, char * const argv[])
 	if (!args.node && args.devn != -1)
 		return errmsg("specify either device number or node file (use -h for help)");
 
-	libubi = libubi_open();
+	libubi = libubi_open(1);
 	if (libubi == NULL)
 		return sys_errmsg("cannot open libubi");
 

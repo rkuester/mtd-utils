@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
- * Author: Artem B. Bityutskiy
+ * Author: Artem Bityutskiy
  *
  * UBI (Unsorted Block Images) library.
  */
@@ -170,10 +170,13 @@ struct ubi_vol_info
 
 /**
  * libubi_open - open UBI library.
+ * @required: if non-zero, libubi will print an error messages if this UBI is
+ *            not present in the system
+ *
  * This function initializes and opens the UBI library and returns UBI library
  * descriptor in case of success and %NULL in case of failure.
  */
-libubi_t libubi_open(void);
+libubi_t libubi_open(int required);
 
 /**
  * libubi_close - close UBI library.
@@ -190,6 +193,17 @@ void libubi_close(libubi_t desc);
  * returns %0 in case of success and %-1 in case of failure.
  */
 int ubi_get_info(libubi_t desc, struct ubi_info *info);
+
+/**
+ * mtd_num2ubi_dev - find UBI device by attached MTD device.
+ * @@desc: UBI library descriptor
+ * @mtd_num: MTD device number
+ * @dev_num: UBI device number is returned here
+ *
+ * This function finds UBI device to which MTD device @mtd_num is attached.
+ * Returns %0 if the UBI device was found and %-1 if not.
+ */
+int mtd_num2ubi_dev(libubi_t desc, int mtd_num, int *dev_num);
 
 /**
  * ubi_attach_mtd - attach MTD device to UBI.

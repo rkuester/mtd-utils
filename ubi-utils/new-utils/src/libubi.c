@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
- * Author: Artem B. Bityutskiy
+ * Author: Artem Bityutskiy
  *
  * UBI (Unsorted Block Images) library.
  */
@@ -32,6 +32,9 @@
 #include <limits.h>
 #include "libubi.h"
 #include "libubi_int.h"
+#include "common.h"
+
+#define PROGRAM_NAME "libubi"
 
 /**
  * mkpath - compose full path from 2 given components.
@@ -474,12 +477,13 @@ static int dev_node2num(struct libubi *lib, const char *node, int *dev_num)
 	return -1;
 }
 
-static int mtd_num2ubi_dev(struct libubi *lib, int mtd_num, int *dev_num)
+int mtd_num2ubi_dev(libubi_t desc, int mtd_num, int *dev_num)
 {
 	struct ubi_info info;
 	int i, ret, mtd_num1;
+	struct libubi *lib = desc;
 
-	if (ubi_get_info((libubi_t *)lib, &info))
+	if (ubi_get_info(desc, &info))
 		return -1;
 
 	for (i = info.lowest_dev_num; i <= info.highest_dev_num; i++) {
@@ -497,11 +501,11 @@ static int mtd_num2ubi_dev(struct libubi *lib, int mtd_num, int *dev_num)
 		}
 	}
 
-	errno = ENODEV;
+	errno = 0;
 	return -1;
 }
 
-libubi_t libubi_open(void)
+libubi_t libubi_open(int required)
 {
 	int fd, version;
 	struct libubi *lib;
@@ -530,8 +534,9 @@ libubi_t libubi_open(void)
 	/* Make sure UBI is present */
 	fd = open(lib->sysfs_ubi, O_RDONLY);
 	if (fd == -1) {
-		errmsg("cannot open \"%s\", UBI does not seem to exist in system",
-		       lib->sysfs_ubi);
+		if (required)
+			errmsg("cannot open \"%s\", UBI does not seem to "
+			       "exist in system", lib->sysfs_ubi);
 		goto out_error;
 	}
 
@@ -627,9 +632,8 @@ libubi_t libubi_open(void)
 	if (read_positive_int(lib->ubi_version, &version))
 		goto out_error;
 	if (version != LIBUBI_UBI_VERSION) {
-		fprintf(stderr, "LIBUBI: this library was made for UBI version "
-				"%d, but UBI version %d is detected\n",
-			LIBUBI_UBI_VERSION, version);
+		errmsg("this library was made for UBI version %d, but UBI "
+		       "version %d is detected\n", LIBUBI_UBI_VERSION, version);
 		goto out_error;
 	}
 
@@ -711,8 +715,10 @@ int ubi_detach_mtd(libubi_t desc, const char *node, int mtd_num)
 	int ret, ubi_dev;
 
 	ret = mtd_num2ubi_dev(desc, mtd_num, &ubi_dev);
-	if (ret == -1)
+	if (ret == -1) {
+		errno = ENODEV;
 		return ret;
+	}
 
 	return ubi_remove_dev(desc, node, ubi_dev);
 }
