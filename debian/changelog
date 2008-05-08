@@ -1,3 +1,31 @@
+mtd-utils (20080508-1) unstable; urgency=low
+
+  [ Riku Voipio ]
+  * New upstream snapshot
+  * remove mtd-tools conflict to allow proper migration
+
+  [ Artem Bityutskiy ]
+  * ubi-utils: fix long options
+  * ubi-utils: make sure only one volume is auto-resize
+  * ubi-utils: improve input parameters checks
+  * mtd-utils: fix input parameter checks
+  * ubi-utils: fix percent output in ubiformat
+  * ubi-utils: fix the output print
+  * ubi-utils: improve input parameters checks
+  * ubi-utils: add ubiformat
+  * ubi-utils: add libscan
+  * ubi-utils: add libmtd
+  * ubi-utils: various clean-ups and preparations
+  * ubi-utils: use common.h in libubi
+  * Teach libubi_open not to prirnt error message
+  * ubinize: correctly calculate VID offset when min I/O unit is 1
+  * ubi-utils: fix a typo
+
+  [ Siarhei Siamashka ]
+  * mkfs.jffs2.c: fix issue with crashing when using lzo compression
+
+ -- Riku Voipio <riku.voipio@iki.fi>  Thu, 08 May 2008 22:05:36 +0300
+
 mtd-utils (20080411-1) unstable; urgency=low
 
   [ Artem Bityutskiy ]
