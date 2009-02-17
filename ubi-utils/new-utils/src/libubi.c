@@ -365,8 +365,9 @@ static int vol_node2nums(struct libubi *lib, const char *node, int *dev_num,
 	int i, fd, major, minor;
 	char file[strlen(lib->ubi_vol) + 100];
 
-	if (lstat(node, &st))
-		return -1;
+	if (stat(node, &st))
+		return sys_errmsg("cannot get information about \"%s\"",
+				  node);
 
 	if (!S_ISCHR(st.st_mode)) {
 		errno = EINVAL;
@@ -427,20 +428,21 @@ static int vol_node2nums(struct libubi *lib, const char *node, int *dev_num,
  */
 static int dev_node2num(struct libubi *lib, const char *node, int *dev_num)
 {
-	struct stat stat;
+	struct stat st;
 	struct ubi_info info;
 	int i, major, minor;
 
-	if (lstat(node, &stat))
-		return -1;
+	if (stat(node, &st))
+		return sys_errmsg("cannot get information about \"%s\"",
+				  node);
 
-	if (!S_ISCHR(stat.st_mode)) {
+	if (!S_ISCHR(st.st_mode)) {
 		errno = EINVAL;
 		return errmsg("\"%s\" is not a character device", node);
 	}
 
-	major = major(stat.st_rdev);
-	minor = minor(stat.st_rdev);
+	major = major(st.st_rdev);
+	minor = minor(st.st_rdev);
 
 	if (minor != 0) {
 		errno = EINVAL;
@@ -691,7 +693,7 @@ int ubi_attach_mtd(libubi_t desc, const char *node,
 
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
-		return -1;
+		return sys_errmsg("cannot open \"%s\"", node);
 
 	ret = ioctl(fd, UBI_IOCATT, &r);
 	close(fd);
@@ -701,8 +703,6 @@ int ubi_attach_mtd(libubi_t desc, const char *node,
 	req->dev_num = r.ubi_num;
 
 #ifdef UDEV_SETTLE_HACK
-	if (system("udevsettle") == -1)
-		return -1;
 	if (system("udevsettle") == -1)
 		return -1;
 #endif
@@ -731,7 +731,7 @@ int ubi_remove_dev(libubi_t desc, const char *node, int ubi_dev)
 
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
-		return -1;
+		return sys_errmsg("cannot open \"%s\"", node);
 	ret = ioctl(fd, UBI_IOCDET, &ubi_dev);
 	if (ret == -1)
 		goto out_close;
@@ -754,10 +754,12 @@ int ubi_node_type(libubi_t desc, const char *node)
 	struct libubi *lib = (struct libubi *)desc;
 	char file[strlen(lib->ubi_vol) + 100];
 
-	if (lstat(node, &st))
-		return -1;
+	if (stat(node, &st))
+		return sys_errmsg("cannot get information about \"%s\"",
+				  node);
 
 	if (!S_ISCHR(st.st_mode)) {
+		errmsg("\"%s\" is not a character device", node);
 		errno = EINVAL;
 		return -1;
 	}
@@ -775,6 +777,8 @@ int ubi_node_type(libubi_t desc, const char *node)
 		if (ret) {
 			if (errno == ENOENT)
 				continue;
+			if (!errno)
+				goto out_not_ubi;
 			return -1;
 		}
 
@@ -782,16 +786,8 @@ int ubi_node_type(libubi_t desc, const char *node)
 			break;
 	}
 
-	if (i > info.highest_dev_num) {
-		/*
-		 * The character device node does not correspond to any
-		 * existing UBI device or volume, but we do not want to return
-		 * any error number in this case, to indicate the fact that it
-		 * could be a UBI device/volume, but it doesn't.
-		 */
-		errno = 0;
-		return -1;
-	}
+	if (i > info.highest_dev_num)
+		goto out_not_ubi;
 
 	if (minor == 0)
 		return 1;
@@ -800,11 +796,17 @@ int ubi_node_type(libubi_t desc, const char *node)
 	sprintf(file, lib->ubi_vol, i, minor - 1);
 	fd = open(file, O_RDONLY);
 	if (fd == -1) {
-		errno = 0;
+		sys_errmsg("cannot open \"%s\"", node);
 		return -1;
 	}
 
 	return 2;
+
+out_not_ubi:
+	errmsg("\"%s\" has major:minor %d:%d, but this does not correspond to "
+	       "any UBI device or volume", node, major, minor);
+	errno = 0;
+	return -1;
 }
 
 int ubi_get_info(libubi_t desc, struct ubi_info *info)
@@ -831,7 +833,7 @@ int ubi_get_info(libubi_t desc, struct ubi_info *info)
 	 */
 	sysfs_ubi = opendir(lib->sysfs_ubi);
 	if (!sysfs_ubi)
-		return sys_errmsg("cannot open %s", lib->sysfs_ubi);
+		return -1;
 
 	info->lowest_dev_num = INT_MAX;
 	while (1) {
@@ -904,7 +906,7 @@ int ubi_mkvol(libubi_t desc, const char *node, struct ubi_mkvol_request *req)
 
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
-		return -1;
+		return sys_errmsg("cannot open \"%s\"", node);
 
 	ret = ioctl(fd, UBI_IOCMKVOL, &r);
 	if (ret == -1)
@@ -929,7 +931,7 @@ int ubi_rmvol(libubi_t desc, const char *node, int vol_id)
 	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
-		return -1;
+		return sys_errmsg("cannot open \"%s\"", node);
 
 	ret = ioctl(fd, UBI_IOCRMVOL, &vol_id);
 	if (ret == -1)
@@ -953,7 +955,7 @@ int ubi_rsvol(libubi_t desc, const char *node, int vol_id, long long bytes)
 	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
-		return -1;
+		return sys_errmsg("cannot open \"%s\"", node);
 
 	req.bytes = bytes;
 	req.vol_id = vol_id;
@@ -999,7 +1001,7 @@ int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info)
 	if (!sysfs_ubi)
 		return -1;
 
-	info->lowest_vol_num = INT_MAX;
+	info->lowest_vol_id = INT_MAX;
 
 	while (1) {
 		int vol_id, ret, devno;
@@ -1019,10 +1021,10 @@ int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info)
 		ret = sscanf(dirent->d_name, UBI_VOL_NAME_PATT"%s", &devno, &vol_id, tmp_buf);
 		if (ret == 2 && devno == dev_num) {
 			info->vol_count += 1;
-			if (vol_id > info->highest_vol_num)
-				info->highest_vol_num = vol_id;
-			if (vol_id < info->lowest_vol_num)
-				info->lowest_vol_num = vol_id;
+			if (vol_id > info->highest_vol_id)
+				info->highest_vol_id = vol_id;
+			if (vol_id < info->lowest_vol_id)
+				info->lowest_vol_id = vol_id;
 		}
 	}
 
@@ -1034,8 +1036,8 @@ int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info)
 	if (closedir(sysfs_ubi))
 		return sys_errmsg("closedir failed on \"%s\"", lib->sysfs_ubi);
 
-	if (info->lowest_vol_num == INT_MAX)
-		info->lowest_vol_num = 0;
+	if (info->lowest_vol_id == INT_MAX)
+		info->lowest_vol_id = 0;
 
 	if (dev_get_major(lib, dev_num, &info->major, &info->minor))
 		return -1;
@@ -1146,4 +1148,38 @@ int ubi_get_vol_info(libubi_t desc, const char *node, struct ubi_vol_info *info)
 		return -1;
 
 	return ubi_get_vol_info1(desc, dev_num, vol_id, info);
+}
+
+int ubi_get_vol_info1_nm(libubi_t desc, int dev_num, const char *name,
+			 struct ubi_vol_info *info)
+{
+	int i, err;
+	unsigned int nlen = strlen(name);
+	struct ubi_dev_info dev_info;
+
+	if (nlen == 0) {
+		errmsg("bad \"name\" input parameter");
+		errno = EINVAL;
+		return -1;
+	}
+
+	err = ubi_get_dev_info1(desc, dev_num, &dev_info);
+	if (err)
+		return err;
+
+	for (i = dev_info.lowest_vol_id;
+	     i <= dev_info.highest_vol_id; i++) {
+		err = ubi_get_vol_info1(desc, dev_num, i, info);
+		if (err == -1) {
+			if (errno == ENOENT)
+				continue;
+			return -1;
+		}
+
+		if (nlen == strlen(info->name) && !strcmp(name, info->name))
+			return 0;
+	}
+
+	errno = ENOENT;
+	return -1;
 }

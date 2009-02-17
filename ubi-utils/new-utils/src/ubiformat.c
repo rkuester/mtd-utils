@@ -51,6 +51,7 @@ struct args {
 	int subpage_size;
 	int vid_hdr_offs;
 	int ubi_ver;
+	off_t image_sz;
 	long long ec;
 	const char *image;
 	const char *node;
@@ -62,7 +63,7 @@ static struct args args =
 };
 
 static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
-		 " - a tool to format MTD devices and flash UBI images";
+		" - a tool to format MTD devices and flash UBI images";
 
 static const char *optionsstr =
 "-s, --sub-page-size=<bytes>  minimum input/output unit used for UBI\n"
@@ -75,7 +76,8 @@ static const char *optionsstr =
 "                             header)\n"
 "-n, --no-volume-table        only erase all eraseblock and preserve erase\n"
 "                             counters, do not write empty volume table\n"
-"-f, --flash-image=<file>     flash image file\n"
+"-f, --flash-image=<file>     flash image file, or '-' for stdin\n"
+"-S, --image-size=<bytes>     bytes in input, if not reading from file\n"
 "-e, --erase-counter=<value>  use <value> as the erase counter value for all\n"
 "                             eraseblocks\n"
 "-y, --yes                    assume the answer is \"yes\" for all question\n"
@@ -92,7 +94,8 @@ static const char *usage =
 "\t\t\t[-x <num>] [-E <value>] [-s <bytes>] [-O <offs>] [-n]\n"
 "\t\t\t[--help] [--version] [--yes] [--verbose] [--quiet]\n"
 "\t\t\t[--ec=<value>] [--vid-hdr-offset=<offs>]\n"
-"\t\t\t[--ubi-ver=<num>] [--no-volume-table]\n\n"
+"\t\t\t[--ubi-ver=<num>] [--no-volume-table]\n"
+"\t\t\t[--flash-image=<file>] [--image-size=<bytes>]\n\n"
 
 "Example 1: " PROGRAM_NAME " /dev/mtd0 -y - format MTD device number 0 and do\n"
 "           not ask questions.\n"
@@ -103,7 +106,8 @@ static const struct option long_options[] = {
 	{ .name = "sub-page-size",   .has_arg = 1, .flag = NULL, .val = 's' },
 	{ .name = "vid-hdr-offset",  .has_arg = 1, .flag = NULL, .val = 'O' },
 	{ .name = "no-volume-table", .has_arg = 0, .flag = NULL, .val = 'n' },
-	{ .name = "flash-image",     .has_arg = 0, .flag = NULL, .val = 'f' },
+	{ .name = "flash-image",     .has_arg = 1, .flag = NULL, .val = 'f' },
+	{ .name = "image-size",      .has_arg = 1, .flag = NULL, .val = 'S' },
 	{ .name = "yes",             .has_arg = 0, .flag = NULL, .val = 'y' },
 	{ .name = "erase-counter",   .has_arg = 1, .flag = NULL, .val = 'e' },
 	{ .name = "quiet",           .has_arg = 0, .flag = NULL, .val = 'q' },
@@ -120,7 +124,7 @@ static int parse_opt(int argc, char * const argv[])
 		int key;
 		char *endp;
 
-		key = getopt_long(argc, argv, "nh?Vyqve:x:s:O:f:", long_options, NULL);
+		key = getopt_long(argc, argv, "nh?Vyqve:x:s:O:f:S:", long_options, NULL);
 		if (key == -1)
 			break;
 
@@ -150,6 +154,12 @@ static int parse_opt(int argc, char * const argv[])
 
 		case 'f':
 			args.image = optarg;
+			break;
+
+		case 'S':
+			args.image_sz = ubiutils_get_bytes(optarg);
+			if (args.image_sz <= 0)
+				return errmsg("bad image-size: \"%s\"", optarg);
 			break;
 
 		case 'n':
@@ -215,7 +225,10 @@ static int want_exit(void)
 
 	while (1) {
 		normsg_cont("continue? (yes/no)  ");
-		scanf("%3s", buf);
+		if (scanf("%3s", buf) == EOF) {
+			sys_errmsg("scanf returned unexpected EOF, assume \"yes\"");
+			return 1;
+		}
 		if (!strncmp(buf, "yes", 3) || !strncmp(buf, "y", 1))
 			return 0;
 		if (!strncmp(buf, "no", 2) || !strncmp(buf, "n", 1))
@@ -228,7 +241,10 @@ static int answer_is_yes(void)
 	char buf[4];
 
 	while (1) {
-		scanf("%3s", buf);
+		if (scanf("%3s", buf) == EOF) {
+			sys_errmsg("scanf returned unexpected EOF, assume \"no\"");
+			return 0;
+		}
 		if (!strncmp(buf, "yes", 3) || !strncmp(buf, "y", 1))
 			return 1;
 		if (!strncmp(buf, "no", 2) || !strncmp(buf, "n", 1))
@@ -263,7 +279,7 @@ static int change_ec(struct ubi_ec_hdr *hdr, long long ec)
 
 	/* Check the EC header */
 	if (be32_to_cpu(hdr->magic) != UBI_EC_HDR_MAGIC)
-		return errmsg("mad UBI magic %#08x, should be %#08x",
+		return errmsg("bad UBI magic %#08x, should be %#08x",
 			      be32_to_cpu(hdr->magic), UBI_EC_HDR_MAGIC);
 
 	crc = crc32(UBI_CRC32_INIT, hdr, UBI_EC_HDR_SIZE_CRC);
@@ -283,7 +299,7 @@ static int drop_ffs(const struct mtd_info *mtd, const void *buf, int len)
 	int i;
 
         for (i = len - 1; i >= 0; i--)
-	       if (((const uint8_t *)buf)[i] != 0xFF)
+		if (((const uint8_t *)buf)[i] != 0xFF)
 		      break;
 
         /* The resulting length must be aligned to the minimum flash I/O size */
@@ -293,27 +309,73 @@ static int drop_ffs(const struct mtd_info *mtd, const void *buf, int len)
         return len;
 }
 
-static int flash_image(const struct mtd_info *mtd, const struct ubigen_info *ui,
-		       struct ubi_scan_info *si)
+static int open_file(off_t *sz)
+{
+	int fd;
+
+	if (!strcmp(args.image, "-")) {
+		if (args.image_sz == 0)
+			return errmsg("must use '-S' with non-zero value when reading from stdin");
+
+		*sz = args.image_sz;
+		fd  = dup(STDIN_FILENO);
+		if (fd < 0)
+			return sys_errmsg("failed to dup stdin");
+	} else {
+		struct stat st;
+
+		if (stat(args.image, &st))
+			return sys_errmsg("cannot open \"%s\"", args.image);
+
+		*sz = st.st_size;
+		fd  = open(args.image, O_RDONLY);
+		if (fd == -1)
+			return sys_errmsg("cannot open \"%s\"", args.image);
+	}
+
+	return fd;
+}
+
+static int read_all(int fd, void *buf, size_t len)
+{
+	while (len > 0) {
+		ssize_t l = read(fd, buf, len);
+		if (l == 0)
+			return errmsg("eof reached; %zu bytes remaining", len);
+		else if (l > 0) {
+			buf += l;
+			len -= l;
+		} else if (errno == EINTR || errno == EAGAIN)
+			continue;
+		else
+			return sys_errmsg("reading failed; %zu bytes remaining", len);
+	}
+
+	return 0;
+}
+
+static int flash_image(const struct mtd_info *mtd, struct ubi_scan_info *si)
 {
 	int fd, img_ebs, eb, written_ebs = 0, divisor;
-	struct stat st;
+	off_t st_size;
 
-	if (stat(args.image, &st))
-		return sys_errmsg("cannot open \"%s\"", args.image);
+	fd = open_file(&st_size);
+	if (fd < 0)
+		return fd;
 
-	img_ebs = st.st_size / mtd->eb_size;
-	if (img_ebs > si->good_cnt)
-		return sys_errmsg("file \"%s\" is too large (%lld bytes)",
-				  args.image, (long long)st.st_size);
+	img_ebs = st_size / mtd->eb_size;
 
-	if (st.st_size % mtd->eb_size)
+	if (img_ebs > si->good_cnt) {
+		sys_errmsg("file \"%s\" is too large (%lld bytes)",
+			   args.image, (long long)st_size);
+		goto out_close;
+	}
+
+	if (st_size % mtd->eb_size) {
 		return sys_errmsg("file \"%s\" (size %lld bytes) is not multiple of eraseblock size (%d bytes)",
-				  args.image, (long long)st.st_size, mtd->eb_size);
-
-	fd = open(args.image, O_RDONLY);
-	if (fd == -1)
-		return sys_errmsg("cannot open \"%s\"", args.image);
+				  args.image, (long long)st_size, mtd->eb_size);
+		goto out_close;
+	}
 
 	verbose(args.verbose, "will write %d eraseblocks", img_ebs);
 	divisor = img_ebs;
@@ -344,7 +406,8 @@ static int flash_image(const struct mtd_info *mtd, const struct ubigen_info *ui,
 			goto out_close;
 		}
 
-		if (read(fd, buf, mtd->eb_size) != mtd->eb_size) {
+		err = read_all(fd, buf, mtd->eb_size);
+		if (err) {
 			sys_errmsg("failed to read eraseblock %d from \"%s\"",
 				   written_ebs, args.image);
 			goto out_close;
@@ -441,6 +504,8 @@ static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
 
 		err = mtd_erase(mtd, eb);
 		if (err) {
+			if (!args.quiet)
+				printf("\n");
 			sys_errmsg("failed to erase eraseblock %d", eb);
 			goto out_free;
 		}
@@ -465,6 +530,8 @@ static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
 
 		err = mtd_write(mtd, eb, 0, hdr, write_size);
 		if (err) {
+			if (!args.quiet && !args.verbose)
+				printf("\n");
 			sys_errmsg("cannot write EC header (%d bytes buffer) to eraseblock %d",
 				   write_size, eb);
 			if (args.subpage_size != mtd->min_io_size)
@@ -539,7 +606,7 @@ int main(int argc, char * const argv[])
 			errmsg("VID header offset has to be multiple of min. I/O unit size");
 			goto out_close;
 		}
-		if (args.vid_hdr_offs + UBI_VID_HDR_SIZE > mtd.eb_size) {
+		if (args.vid_hdr_offs + (int)UBI_VID_HDR_SIZE > mtd.eb_size) {
 			errmsg("bad VID header offset");
 			goto out_close;
 		}
@@ -675,19 +742,20 @@ int main(int argc, char * const argv[])
 				"which is different to calculated offsets %d and %d",
 				si->vid_hdr_offs, si->data_offs, ui.vid_hdr_offs,
 				ui.data_offs);
-			normsg_cont("use old offsets %d and %d? (yes/no)  ",
+			normsg_cont("use new offsets %d and %d? (yes/no)  ",
 				    si->vid_hdr_offs, si->data_offs);
 		}
 		if (args.yes || answer_is_yes()) {
 			if (args.yes && !args.quiet)
 				printf("yes\n");
+		} else {
 			ui.vid_hdr_offs = si->vid_hdr_offs;
 			ui.data_offs = si->data_offs;
 		}
 	}
 
 	if (args.image) {
-		err = flash_image(&mtd, &ui, si);
+		err = flash_image(&mtd, si);
 		if (err < 0)
 			goto out_free;
 

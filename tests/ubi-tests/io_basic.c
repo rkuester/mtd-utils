@@ -93,7 +93,7 @@ remove:
  */
 static int test_aligned(int type)
 {
-	int i, ebsz;
+	unsigned int i, ebsz;
 	struct ubi_mkvol_request req;
 	const char *name = TESTNAME ":test_aligned()";
 	char vol_node[strlen(UBI_VOLUME_PATTERN) + 100];
@@ -150,7 +150,7 @@ int main(int argc, char * const argv[])
 
 	node = argv[1];
 
-	libubi = libubi_open();
+	libubi = libubi_open(1);
 	if (libubi == NULL) {
 		failed("libubi_open");
 		return 1;

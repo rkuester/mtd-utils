@@ -38,7 +38,7 @@
 #include <libiniparser.h>
 #include "common.h"
 
-#define PROGRAM_VERSION "1.0"
+#define PROGRAM_VERSION "1.1"
 #define PROGRAM_NAME    "ubinize"
 
 static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
@@ -77,8 +77,8 @@ static const char *optionsstr =
 static const char *usage =
 "Usage: " PROGRAM_NAME " [-o filename] [-h] [-V] [--output=<filename>] [--help]\n"
 "\t\t[--version] ini-file\n"
-"Example: " PROGRAM_NAME " -o ubi.img cfg.ini - create UBI image 'ubi.img' as\n"
-"         described by configuration file 'cfg.ini'";
+"Example: " PROGRAM_NAME " -o ubi.img -p 16KiB -m 512 -s 256 cfg.ini - create UBI image\n"
+"         'ubi.img' as described by configuration file 'cfg.ini'";
 
 static const char *ini_doc = "INI-file format.\n"
 "The input configuration ini-file describes all the volumes which have to\n"
@@ -261,7 +261,7 @@ static int parse_opt(int argc, char * const argv[])
 		return errmsg("output file was not specified (use -h for help)");
 
 	if (args.vid_hdr_offs) {
-		if (args.vid_hdr_offs + UBI_VID_HDR_SIZE >= args.peb_size)
+		if (args.vid_hdr_offs + (int)UBI_VID_HDR_SIZE >= args.peb_size)
 			return errmsg("bad VID header position");
 		if (args.vid_hdr_offs % 8)
 			return errmsg("VID header offset has to be multiple of min. I/O unit size");
@@ -270,8 +270,9 @@ static int parse_opt(int argc, char * const argv[])
 	return 0;
 }
 
-static int read_section(const char *sname, struct ubigen_vol_info *vi,
-			const char **img)
+static int read_section(const struct ubigen_info *ui, const char *sname,
+			struct ubigen_vol_info *vi, const char **img,
+			struct stat *st)
 {
 	char buf[256];
 	const char *p;
@@ -299,54 +300,6 @@ static int read_section(const char *sname, struct ubigen_vol_info *vi,
 
 	verbose(args.verbose, "mode=ubi, keep parsing");
 
-	/* Fetch the name of the volume image file */
-	sprintf(buf, "%s:image", sname);
-	p = iniparser_getstring(args.dict, buf, NULL);
-	if (p)
-		*img = p;
-
-	/* Fetch volume id */
-	sprintf(buf, "%s:vol_id", sname);
-	vi->id = iniparser_getint(args.dict, buf, -1);
-	if (vi->id == -1)
-		return errmsg("\"vol_id\" key not found in section  \"%s\"", sname);
-
-	if (vi->id < 0)
-		return errmsg("negative volume ID %d", vi->id);
-
-	if (vi->id >= UBI_MAX_VOLUMES)
-		return errmsg("too high volume ID %d, max. is %d", vi->id, UBI_MAX_VOLUMES);
-
-	verbose(args.verbose, "volume ID: %d", vi->id);
-
-	/* Fetch volume size */
-	sprintf(buf, "%s:vol_size", sname);
-	p = iniparser_getstring(args.dict, buf, NULL);
-	if (p) {
-		vi->bytes = ubiutils_get_bytes(p);
-		if (vi->bytes <= 0)
-			return errmsg("bad \"vol_size\" key: \"%s\"", p);
-
-		verbose(args.verbose, "volume size: %lld bytes", vi->bytes);
-	} else {
-		struct stat st;
-
-		if (!*img)
-			return errmsg("neither image file (\"image=\") nor volume size (\"vol_size=\") specified");
-
-		if (stat(*img, &st))
-			return sys_errmsg("cannot stat \"%s\"", *img);
-
-		vi->bytes = st.st_size;
-
-		if (vi->bytes == 0)
-			return errmsg("file \"%s\" referred from section \"%s\" is empty", *img, sname);
-
-		normsg_cont("volume size was not specified in section \"%s\", assume ", sname);
-		ubiutils_print_bytes(vi->bytes, 1);
-		printf("\n");
-	}
-
 	/* Fetch volume type */
 	sprintf(buf, "%s:vol_type", sname);
 	p = iniparser_getstring(args.dict, buf, NULL);
@@ -360,17 +313,84 @@ static int read_section(const char *sname, struct ubigen_vol_info *vi,
 		else if (!strcmp(p, "dynamic"))
 			vi->type = UBI_VID_DYNAMIC;
 		else
-			return errmsg("invalid volume type \"%s\"", p);
+			return errmsg("invalid volume type \"%s\" in section  \"%s\"",
+				      p, sname);
 	}
 
 	verbose(args.verbose, "volume type: %s",
 		vi->type == UBI_VID_DYNAMIC ? "dynamic" : "static");
 
+	/* Fetch the name of the volume image file */
+	sprintf(buf, "%s:image", sname);
+	p = iniparser_getstring(args.dict, buf, NULL);
+	if (p) {
+		*img = p;
+		if (stat(p, st))
+			return sys_errmsg("cannot stat \"%s\" referred from section \"%s\"",
+					  p, sname);
+		if (st->st_size == 0)
+			return errmsg("empty file \"%s\" referred from section \"%s\"",
+				       p, sname);
+	} else if (vi->type == UBI_VID_STATIC)
+		return errmsg("image is not specified for static volume in section \"%s\"",
+			      sname);
+
+	/* Fetch volume id */
+	sprintf(buf, "%s:vol_id", sname);
+	vi->id = iniparser_getint(args.dict, buf, -1);
+	if (vi->id == -1)
+		return errmsg("\"vol_id\" key not found in section  \"%s\"", sname);
+	if (vi->id < 0)
+		return errmsg("negative volume ID %d in section \"%s\"",
+			      vi->id, sname);
+	if (vi->id >= ui->max_volumes)
+		return errmsg("too high volume ID %d in section \"%s\", max. is %d",
+			      vi->id, sname, ui->max_volumes);
+
+	verbose(args.verbose, "volume ID: %d", vi->id);
+
+	/* Fetch volume size */
+	sprintf(buf, "%s:vol_size", sname);
+	p = iniparser_getstring(args.dict, buf, NULL);
+	if (p) {
+		vi->bytes = ubiutils_get_bytes(p);
+		if (vi->bytes <= 0)
+			return errmsg("bad \"vol_size\" key value \"%s\" (section \"%s\")",
+				      p, sname);
+
+		/* Make sure the image size is not larger than volume size */
+		if (*img && st->st_size > vi->bytes)
+			return errmsg("error in section \"%s\": size of the image file "
+				      "\"%s\" is %lld, which is larger than volume size %lld",
+				      sname, *img, (long long)st->st_size, vi->bytes);
+		verbose(args.verbose, "volume size: %lld bytes", vi->bytes);
+	} else {
+		struct stat st;
+
+		if (!*img)
+			return errmsg("neither image file (\"image=\") nor volume size "
+				      "(\"vol_size=\") specified in section \"%s\"", sname);
+
+		if (stat(*img, &st))
+			return sys_errmsg("cannot stat \"%s\"", *img);
+
+		vi->bytes = st.st_size;
+
+		if (vi->bytes == 0)
+			return errmsg("file \"%s\" referred from section \"%s\" is empty",
+				      *img, sname);
+
+		normsg_cont("volume size was not specified in section \"%s\", assume"
+			    " minimum to fit image \"%s\"", sname, *img);
+		ubiutils_print_bytes(vi->bytes, 1);
+		printf("\n");
+	}
+
 	/* Fetch volume name */
 	sprintf(buf, "%s:vol_name", sname);
 	p = iniparser_getstring(args.dict, buf, NULL);
 	if (!p)
-		return errmsg("\"vol_name\" key not found in section  \"%s\"", sname);
+		return errmsg("\"vol_name\" key not found in section \"%s\"", sname);
 
 	vi->name = p;
 	vi->name_len = strlen(p);
@@ -383,12 +403,11 @@ static int read_section(const char *sname, struct ubigen_vol_info *vi,
 	/* Fetch volume alignment */
 	sprintf(buf, "%s:vol_alignment", sname);
 	vi->alignment = iniparser_getint(args.dict, buf, -1);
-	if (vi->alignment == -1) {
-		normsg("volume alignment was not specified in section "
-		       "\"%s\", assume 1", sname);
-			vi->alignment = 1;
-	} else if (vi->id < 0)
-		return errmsg("negative volume alignement %d", vi->alignment);
+	if (vi->alignment == -1)
+		vi->alignment = 1;
+	else if (vi->id < 0)
+		return errmsg("negative volume alignement %d in section \"%s\"",
+			      vi->alignment, sname);
 
 	verbose(args.verbose, "volume alignment: %d", vi->alignment);
 
@@ -400,27 +419,28 @@ static int read_section(const char *sname, struct ubigen_vol_info *vi,
 			verbose(args.verbose, "autoresize flags found");
 			vi->flags |= UBI_VTBL_AUTORESIZE_FLG;
 		} else {
-			return errmsg("unknown flags \"%s\" in section \"%s\"", p, sname);
+			return errmsg("unknown flags \"%s\" in section \"%s\"",
+				      p, sname);
 		}
 	}
 
-	return 0;
-}
-
-static void init_vol_info(const struct ubigen_info *ui,
-			  struct ubigen_vol_info *vi)
-{
+	/* Initialize the rest of the volume information */
 	vi->data_pad = ui->leb_size % vi->alignment;
 	vi->usable_leb_size = ui->leb_size - vi->data_pad;
-	vi->used_ebs = (vi->bytes + vi->usable_leb_size - 1) / vi->usable_leb_size;
+	if (vi->type == UBI_VID_DYNAMIC)
+		vi->used_ebs = (vi->bytes + vi->usable_leb_size - 1) / vi->usable_leb_size;
+	else
+		vi->used_ebs = (st->st_size + vi->usable_leb_size - 1) / vi->usable_leb_size;
 	vi->compat = 0;
+	return 0;
 }
 
 int main(int argc, char * const argv[])
 {
-	int err = -1, sects, i, volumes, autoresize_was_already = 0;
+	int err = -1, sects, i, autoresize_was_already = 0;
 	struct ubigen_info ui;
 	struct ubi_vtbl_record *vtbl;
+	struct ubigen_vol_info *vi;
 	off_t seek;
 
 	err = parse_opt(argc, argv);
@@ -434,7 +454,7 @@ int main(int argc, char * const argv[])
 	verbose(args.verbose, "LEB size:      %d", ui.leb_size);
 	verbose(args.verbose, "PEB size:      %d", ui.peb_size);
 	verbose(args.verbose, "min. I/O size: %d", ui.min_io_size);
-	verbose(args.verbose, "sub-page size: %d", ui.min_io_size);
+	verbose(args.verbose, "sub-page size: %d", args.subpage_size);
 	verbose(args.verbose, "VID offset:    %d", ui.vid_hdr_offs);
 	verbose(args.verbose, "data offset:   %d", ui.data_offs);
 
@@ -463,6 +483,20 @@ int main(int argc, char * const argv[])
 		goto out_dict;
 	}
 
+	if (sects > ui.max_volumes) {
+		errmsg("too many sections (%d) in the ini-file \"%s\"",
+		       sects, args.f_in);
+		normsg("each section corresponds to an UBI volume, maximum "
+		       "count of volumes is %d", ui.max_volumes);
+		goto out_dict;
+	}
+
+	vi = calloc(sizeof(struct ubigen_vol_info), sects);
+	if (!vi) {
+		errmsg("cannot allocate memory");
+		goto out_dict;
+	}
+
 	/*
 	 * Skip 2 PEBs at the beginning of the file for the volume table which
 	 * will be written later.
@@ -470,84 +504,79 @@ int main(int argc, char * const argv[])
 	seek = ui.peb_size * 2;
 	if (lseek(args.out_fd, seek, SEEK_SET) != seek) {
 		sys_errmsg("cannot seek file \"%s\"", args.f_out);
-		goto out_dict;
+		goto out_free;
 	}
 
 	for (i = 0; i < sects; i++) {
 		const char *sname = iniparser_getsecname(args.dict, i);
-		struct ubigen_vol_info vi;
 		const char *img = NULL;
 		struct stat st;
-		int fd;
+		int fd, j;
 
 		if (!sname) {
 			errmsg("ini-file parsing error (iniparser_getsecname)");
-			goto out_dict;
+			goto out_free;
 		}
 
 		if (args.verbose)
 			printf("\n");
 		verbose(args.verbose, "parsing section \"%s\"", sname);
 
-		err = read_section(sname, &vi, &img);
+		err = read_section(&ui, sname, &vi[i], &img, &st);
 		if (err == -1)
-			goto out_dict;
-		if (!err)
-			volumes += 1;
-		init_vol_info(&ui, &vi);
+			goto out_free;
 
-		if (vi.id >= ui.max_volumes)
-			return errmsg("too high volume ID %d, max. is %d",
-				      vi.id, ui.max_volumes);
+		verbose(args.verbose, "adding volume %d", vi[i].id);
 
-		verbose(args.verbose, "adding volume %d", vi.id);
+		/*
+		 * Make sure that volume ID and name is unique and that only
+		 * one volume has auto-resize flag
+		 */
+		for (j = 0; j < i; j++) {
+			if (vi[i].id == vi[j].id) {
+				errmsg("volume IDs must be unique, but ID %d "
+				       "in section \"%s\" is not",
+				       vi[i].id, sname);
+				goto out_free;
+			}
 
-		/* Make sure only one volume has auto-resize flag */
-		if (vi.flags & UBI_VTBL_AUTORESIZE_FLG) {
+			if (!strcmp(vi[i].name, vi[j].name)) {
+				errmsg("volume name must be unique, but name "
+				       "\"%s\" in section \"%s\" is not",
+				       vi[i].name, sname);
+				goto out_free;
+			}
+		}
+
+		if (vi[i].flags & UBI_VTBL_AUTORESIZE_FLG) {
 			if (autoresize_was_already)
 				return errmsg("only one volume is allowed "
 					      "to have auto-resize flag");
 			autoresize_was_already = 1;
 		}
 
-		err = ubigen_add_volume(&ui, &vi, vtbl);
+		err = ubigen_add_volume(&ui, &vi[i], vtbl);
 		if (err) {
 			errmsg("cannot add volume for section \"%s\"", sname);
-			goto out_dict;
+			goto out_free;
 		}
 
-		if (!img)
-			continue;
+		if (img) {
+			fd = open(img, O_RDONLY);
+			if (fd == -1) {
+				sys_errmsg("cannot open \"%s\"", img);
+				goto out_free;
+			}
 
-		if (stat(img, &st)) {
-			sys_errmsg("cannot stat \"%s\"", img);
-			goto out_dict;
-		}
+			verbose(args.verbose, "writing volume %d", vi[i].id);
+			verbose(args.verbose, "image file: %s", img);
 
-		/*
-		 * Make sure the image size is not larger then the volume size.
-		 */
-		if (st.st_size > vi.bytes) {
-			errmsg("error in section \"%s\": size of the image file \"%s\" "
-			       "is %lld, which is larger then the volume size %lld",
-			       sname, img, (long long)st.st_size, vi.bytes);
-			goto out_dict;
-		}
-
-		fd = open(img, O_RDONLY);
-		if (fd == -1) {
-			sys_errmsg("cannot open \"%s\"", img);
-			goto out_dict;
-		}
-
-		verbose(args.verbose, "writing volume %d", vi.id);
-		verbose(args.verbose, "image file: %s", img);
-
-		err = ubigen_write_volume(&ui, &vi, args.ec, st.st_size, fd, args.out_fd);
-		close(fd);
-		if (err) {
-			errmsg("cannot write volume for section \"%s\"", sname);
-			goto out_dict;
+			err = ubigen_write_volume(&ui, &vi[i], args.ec, st.st_size, fd, args.out_fd);
+			close(fd);
+			if (err) {
+				errmsg("cannot write volume for section \"%s\"", sname);
+				goto out_free;
+			}
 		}
 
 		if (args.verbose)
@@ -559,16 +588,19 @@ int main(int argc, char * const argv[])
 	err = ubigen_write_layout_vol(&ui, 0, 1, args.ec, args.ec, vtbl, args.out_fd);
 	if (err) {
 		errmsg("cannot write layout volume");
-		goto out_dict;
+		goto out_free;
 	}
 
 	verbose(args.verbose, "done");
 
+	free(vi);
 	iniparser_freedict(args.dict);
 	free(vtbl);
 	close(args.out_fd);
 	return 0;
 
+out_free:
+	free(vi);
 out_dict:
 	iniparser_freedict(args.dict);
 out_vtbl:

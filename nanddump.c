@@ -17,6 +17,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,29 +33,32 @@
 #define PROGRAM "nanddump"
 #define VERSION "$Revision: 1.29 $"
 
-struct nand_oobinfo none_oobinfo = {
+static struct nand_oobinfo none_oobinfo = {
 	.useecc = MTD_NANDECC_OFF,
 };
 
-void display_help (void)
+static void display_help (void)
 {
-	printf("Usage: nanddump [OPTIONS] MTD-device\n"
-			"Dumps the contents of a nand mtd partition.\n"
-			"\n"
-			"           --help	        display this help and exit\n"
-			"           --version	        output version information and exit\n"
-			"-f file    --file=file          dump to file\n"
-			"-i         --ignoreerrors       ignore errors\n"
-			"-l length  --length=length      length\n"
-			"-n         --noecc              read without error correction\n"
-			"-o         --omitoob            omit oob data\n"
-			"-b         --omitbad            omit bad blocks from the dump\n"
-			"-p         --prettyprint        print nice (hexdump)\n"
-			"-s addr    --startaddress=addr  start address\n");
-	exit(0);
+	printf(
+"Usage: nanddump [OPTIONS] MTD-device\n"
+"Dumps the contents of a nand mtd partition.\n"
+"\n"
+"           --help               Display this help and exit\n"
+"           --version            Output version information and exit\n"
+"-f file    --file=file          Dump to file\n"
+"-i         --ignoreerrors       Ignore errors\n"
+"-l length  --length=length      Length\n"
+"-n         --noecc              Read without error correction\n"
+"-o         --omitoob            Omit oob data\n"
+"-b         --omitbad            Omit bad blocks from the dump\n"
+"-p         --prettyprint        Print nice (hexdump)\n"
+"-q         --quiet              Don't display progress and status messages\n"
+"-s addr    --startaddress=addr  Start address\n"
+	);
+	exit(EXIT_SUCCESS);
 }
 
-void display_version (void)
+static void display_version (void)
 {
 	printf(PROGRAM " " VERSION "\n"
 			"\n"
@@ -64,28 +68,29 @@ void display_version (void)
 			"You may redistribute copies of " PROGRAM "\n"
 			"under the terms of the GNU General Public Licence.\n"
 			"See the file `COPYING' for more information.\n");
-	exit(0);
+	exit(EXIT_SUCCESS);
 }
 
 // Option variables
 
-int	ignoreerrors;		// ignore errors
-int	pretty_print;		// print nice in ascii
-int	noecc;			// don't error correct
-int	omitoob;		// omit oob data
-unsigned long	start_addr;	// start address
-unsigned long	length;		// dump length
-char    *mtddev;		// mtd device name
-char    *dumpfile;		// dump file name
-int	omitbad;
+static bool		ignoreerrors = false;	// ignore errors
+static bool		pretty_print = false;	// print nice in ascii
+static bool		noecc = false;		// don't error correct
+static bool		omitoob = false;	// omit oob data
+static unsigned long	start_addr;		// start address
+static unsigned long	length;			// dump length
+static const char	*mtddev;		// mtd device name
+static const char	*dumpfile;		// dump file name
+static bool		omitbad = false;
+static bool		quiet = false;		// suppress diagnostic output
 
-void process_options (int argc, char *argv[])
+static void process_options (int argc, char * const argv[])
 {
 	int error = 0;
 
 	for (;;) {
 		int option_index = 0;
-		static const char *short_options = "bs:f:il:opn";
+		static const char *short_options = "bs:f:il:opqn";
 		static const struct option long_options[] = {
 			{"help", no_argument, 0, 0},
 			{"version", no_argument, 0, 0},
@@ -97,6 +102,7 @@ void process_options (int argc, char *argv[])
 			{"startaddress", required_argument, 0, 's'},
 			{"length", required_argument, 0, 'l'},
 			{"noecc", no_argument, 0, 'n'},
+			{"quiet", no_argument, 0, 'q'},
 			{0, 0, 0, 0},
 		};
 
@@ -118,7 +124,7 @@ void process_options (int argc, char *argv[])
 				}
 				break;
 			case 'b':
-				omitbad = 1;
+				omitbad = true;
 				break;
 			case 's':
 				start_addr = strtol(optarg, NULL, 0);
@@ -126,28 +132,37 @@ void process_options (int argc, char *argv[])
 			case 'f':
 				if (!(dumpfile = strdup(optarg))) {
 					perror("stddup");
-					exit(1);
+					exit(EXIT_FAILURE);
 				}
 				break;
 			case 'i':
-				ignoreerrors = 1;
+				ignoreerrors = true;
 				break;
 			case 'l':
 				length = strtol(optarg, NULL, 0);
 				break;
 			case 'o':
-				omitoob = 1;
+				omitoob = true;
 				break;
 			case 'p':
-				pretty_print = 1;
+				pretty_print = true;
+				break;
+			case 'q':
+				quiet = true;
 				break;
 			case 'n':
-				noecc = 1;
+				noecc = true;
 				break;
 			case '?':
-				error = 1;
+				error++;
 				break;
 		}
+	}
+
+	if (quiet && pretty_print) {
+		fprintf(stderr, "The quiet and pretty print options are mutually-\n"
+				"exclusive. Choose one or the other.\n");
+		exit(EXIT_FAILURE);
 	}
 
 	if ((argc - optind) != 1 || error)
@@ -159,13 +174,13 @@ void process_options (int argc, char *argv[])
 /*
  * Buffers for reading data from flash
  */
-unsigned char readbuf[2048];
-unsigned char oobbuf[64];
+static unsigned char readbuf[4096];
+static unsigned char oobbuf[128];
 
 /*
  * Main program
  */
-int main(int argc, char **argv)
+int main(int argc, char * const argv[])
 {
 	unsigned long ofs, end_addr = 0;
 	unsigned long long blockstart = 1;
@@ -176,31 +191,32 @@ int main(int argc, char **argv)
 	int oobinfochanged = 0 ;
 	struct nand_oobinfo old_oobinfo;
 	struct mtd_ecc_stats stat1, stat2;
-	int eccstats = 0;
+	bool eccstats = false;
 
 	process_options(argc, argv);
 
 	/* Open MTD device */
 	if ((fd = open(mtddev, O_RDONLY)) == -1) {
-		perror("open flash");
-		exit (1);
+		perror(mtddev);
+		exit (EXIT_FAILURE);
 	}
 
 	/* Fill in MTD device capability structure */
 	if (ioctl(fd, MEMGETINFO, &meminfo) != 0) {
 		perror("MEMGETINFO");
 		close(fd);
-		exit (1);
+		exit (EXIT_FAILURE);
 	}
 
 	/* Make sure device page sizes are valid */
-	if (!(meminfo.oobsize == 64 && meminfo.writesize == 2048) &&
+	if (!(meminfo.oobsize == 128 && meminfo.writesize == 4096) &&
+			!(meminfo.oobsize == 64 && meminfo.writesize == 2048) &&
 			!(meminfo.oobsize == 32 && meminfo.writesize == 1024) &&
 			!(meminfo.oobsize == 16 && meminfo.writesize == 512) &&
 			!(meminfo.oobsize == 8 && meminfo.writesize == 256)) {
 		fprintf(stderr, "Unknown flash (not normal NAND)\n");
 		close(fd);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	/* Read the real oob length */
 	oob.length = meminfo.oobsize;
@@ -215,30 +231,32 @@ int main(int argc, char **argv)
 				if (ioctl (fd, MEMGETOOBSEL, &old_oobinfo) != 0) {
 					perror ("MEMGETOOBSEL");
 					close (fd);
-					exit (1);
+					exit (EXIT_FAILURE);
 				}
 				if (ioctl (fd, MEMSETOOBSEL, &none_oobinfo) != 0) {
 					perror ("MEMSETOOBSEL");
 					close (fd);
-					exit (1);
+					exit (EXIT_FAILURE);
 				}
 				oobinfochanged = 1;
 				break;
 			default:
 				perror ("MTDFILEMODE");
 				close (fd);
-				exit (1);
+				exit (EXIT_FAILURE);
 			}
 		}
 	} else {
 
 		/* check if we can read ecc stats */
 		if (!ioctl(fd, ECCGETSTATS, &stat1)) {
-			eccstats = 1;
-			fprintf(stderr, "ECC failed: %d\n", stat1.failed);
-			fprintf(stderr, "ECC corrected: %d\n", stat1.corrected);    
-			fprintf(stderr, "Number of bad blocks: %d\n", stat1.badblocks);    
-			fprintf(stderr, "Number of bbt blocks: %d\n", stat1.bbtblocks);    
+			eccstats = true;
+			if (!quiet) {
+				fprintf(stderr, "ECC failed: %d\n", stat1.failed);
+				fprintf(stderr, "ECC corrected: %d\n", stat1.corrected);    
+				fprintf(stderr, "Number of bad blocks: %d\n", stat1.badblocks);    
+				fprintf(stderr, "Number of bbt blocks: %d\n", stat1.bbtblocks);    
+			}
 		} else
 			perror("No ECC status information available");
 	}
@@ -248,9 +266,9 @@ int main(int argc, char **argv)
 	if (!dumpfile) {
 		ofd = STDOUT_FILENO;
 	} else if ((ofd = open(dumpfile, O_WRONLY | O_TRUNC | O_CREAT, 0644))== -1) {
-		perror ("open outfile");
+		perror (dumpfile);
 		close(fd);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	/* Initialize start/end addresses and block size */
@@ -262,12 +280,14 @@ int main(int argc, char **argv)
 	bs = meminfo.writesize;
 
 	/* Print informative message */
-	fprintf(stderr, "Block size %u, page size %u, OOB size %u\n",
-			meminfo.erasesize, meminfo.writesize, meminfo.oobsize);
-	fprintf(stderr,
-			"Dumping data starting at 0x%08x and ending at 0x%08x...\n",
-			(unsigned int) start_addr, (unsigned int) end_addr);
 
+	if (!quiet) {
+		fprintf(stderr, "Block size %u, page size %u, OOB size %u\n",
+				meminfo.erasesize, meminfo.writesize, meminfo.oobsize);
+		fprintf(stderr,
+				"Dumping data starting at 0x%08x and ending at 0x%08x...\n",
+				(unsigned int) start_addr, (unsigned int) end_addr);
+	}
 	/* Dump the flash contents */
 	for (ofs = start_addr; ofs < end_addr ; ofs+=bs) {
 
@@ -378,7 +398,7 @@ int main(int argc, char **argv)
 			perror ("MEMSETOOBSEL");
 			close(fd);
 			close(ofd);
-			return 1;
+			return EXIT_FAILURE;
 		}
 	}
 	/* Close the output file and MTD device */
@@ -386,7 +406,7 @@ int main(int argc, char **argv)
 	close(ofd);
 
 	/* Exit happy */
-	return 0;
+	return EXIT_SUCCESS;
 
 closeall:
 	/* The new mode change is per file descriptor ! */
@@ -397,5 +417,5 @@ closeall:
 	}
 	close(fd);
 	close(ofd);
-	exit(1);
+	exit(EXIT_FAILURE);
 }

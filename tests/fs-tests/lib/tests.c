@@ -17,26 +17,26 @@
  *
  * Author: Adrian Hunter
  */
-
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <sys/vfs.h>
-#include <sys/statvfs.h>
-#include <linux/jffs2.h>
 #include <libgen.h>
 #include <dirent.h>
 #include <ctype.h>
 #include <limits.h>
-#include <sys/mount.h>
 #include <mntent.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/vfs.h>
+#include <sys/mount.h>
+#include <sys/statvfs.h>
+#include <linux/fs.h>
+#include <linux/jffs2.h>
 
 #include "tests.h"
 
@@ -82,6 +82,9 @@ int tests_hole_flag = 0;
 
 /* Whether it is ok to test on the root file system */
 static int rootok = 0;
+
+/* Maximum file name length of test file system (from statfs) */
+long tests_max_fname_len = 255;
 
 /* Function invoked by the CHECK macro */
 void tests_test(int test,const char *msg,const char *file,unsigned line)
@@ -370,6 +373,7 @@ void tests_check_test_file_system(void)
 			"TEST_FILE_SYSTEM_MOUNT_DIR\n");
 		CHECK(0);
 	}
+	tests_max_fname_len = fs_info.f_namelen;
 	if (strcmp(tests_file_system_type, "jffs2") == 0 &&
 			fs_info.f_type != JFFS2_SUPER_MAGIC) {
 		fprintf(stderr,	"File system type is not jffs2\n");
@@ -970,6 +974,81 @@ int tests_get_mount_info(struct mntent *info)
 	return found;
 }
 
+/*
+ * This funcion parses file-system options string, extracts standard mount
+ * options from there, and saves them in the @flags variable. The non-standard
+ * (fs-specific) mount options are left in @mnt_opts string, while the standard
+ * ones will be removed from it.
+ *
+ * The reason for this perverted function is that we want to preserve mount
+ * options when unmounting the file-system and mounting it again. But we cannot
+ * pass standard* mount optins (like sync, ro, etc) as a string to the
+ * 'mount()' function, because it fails. It accepts standard mount options only
+ * as flags. And only the FS-specific mount options are accepted in form of a
+ * string.
+ */
+static int process_mount_options(char **mnt_opts, unsigned long *flags)
+{
+	char *tmp, *opts, *p;
+	const char *opt;
+
+	/*
+	 * We are going to use 'strtok()' which modifies the original string,
+	 * so duplicate it.
+	 */
+	tmp = strdup(*mnt_opts);
+	if (!tmp)
+		goto out_mem;
+
+	p = opts = calloc(1, strlen(*mnt_opts) + 1);
+	if (!opts) {
+		free(tmp);
+		goto out_mem;
+	}
+
+	*flags = 0;
+	opt = strtok(tmp, ",");
+	while (opt) {
+		if (!strcmp(opt, "rw"))
+			;
+		else if (!strcmp(opt, "ro"))
+			*flags |= MS_RDONLY;
+		else if (!strcmp(opt, "dirsync"))
+			*flags |= MS_DIRSYNC;
+		else if (!strcmp(opt, "noatime"))
+			*flags |= MS_NOATIME;
+		else if (!strcmp(opt, "nodiratime"))
+			*flags |= MS_NODIRATIME;
+		else if (!strcmp(opt, "noexec"))
+			*flags |= MS_NOEXEC;
+		else if (!strcmp(opt, "nosuid"))
+			*flags |= MS_NOSUID;
+		else if (!strcmp(opt, "relatime"))
+			*flags |= MS_RELATIME;
+		else if (!strcmp(opt, "sync"))
+			*flags |= MS_SYNCHRONOUS;
+		else {
+			int len = strlen(opt);
+
+			if (p != opts)
+				*p++ = ',';
+			memcpy(p, opt, len);
+			p += len;
+			*p = '\0';
+		}
+
+		opt = strtok(NULL, ",");
+	}
+
+	free(tmp);
+	*mnt_opts = opts;
+	return 0;
+
+out_mem:
+	fprintf(stderr, "cannot allocate memory\n");
+	return 1;
+}
+
 /* Un-mount and re-mount test file system */
 void tests_remount(void)
 {
@@ -978,7 +1057,7 @@ void tests_remount(void)
 	char *target;
 	char *filesystemtype;
 	unsigned long mountflags;
-	void *data;
+	char *data;
 	char cwd[4096];
 
 	CHECK(tests_get_mount_info(&mount_info));
@@ -994,12 +1073,54 @@ void tests_remount(void)
 	source = mount_info.mnt_fsname;
 	target = tests_file_system_mount_dir;
 	filesystemtype = tests_file_system_type;
-	mountflags = 0;
-	data = NULL;
+	data = mount_info.mnt_opts;
+	process_mount_options(&data, &mountflags);
 
 	CHECK(mount(source, target, filesystemtype, mountflags, data) != -1);
-
 	CHECK(chdir(cwd) != -1);
+}
+
+/* Un-mount or re-mount test file system */
+static void tests_mnt(int mnt)
+{
+	static struct mntent mount_info;
+	char *source;
+	char *target;
+	char *filesystemtype;
+	unsigned long mountflags;
+	char *data;
+	static char cwd[4096];
+
+	if (mnt == 0) {
+		CHECK(tests_get_mount_info(&mount_info));
+		if (strcmp(mount_info.mnt_dir,"/") == 0)
+			return;
+		CHECK(getcwd(cwd, 4096) != NULL);
+		CHECK(chdir("/") != -1);
+		CHECK(umount(tests_file_system_mount_dir) != -1);
+	} else {
+		source = mount_info.mnt_fsname;
+		target = tests_file_system_mount_dir;
+		filesystemtype = tests_file_system_type;
+		data = mount_info.mnt_opts;
+		process_mount_options(&data, &mountflags);
+
+		CHECK(mount(source, target, filesystemtype, mountflags, data)
+			!= -1);
+		CHECK(chdir(cwd) != -1);
+	}
+}
+
+/* Unmount test file system */
+void tests_unmount(void)
+{
+	tests_mnt(0);
+}
+
+/* Mount test file system */
+void tests_mount(void)
+{
+	tests_mnt(1);
 }
 
 /* Check whether the test file system is also the root file system */

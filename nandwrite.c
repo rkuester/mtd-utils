@@ -23,6 +23,9 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,59 +42,62 @@
 #define PROGRAM "nandwrite"
 #define VERSION "$Revision: 1.32 $"
 
-#define MAX_PAGE_SIZE	2048
-#define MAX_OOB_SIZE	64
+#define MAX_PAGE_SIZE	4096
+#define MAX_OOB_SIZE	128
 
 /*
  * Buffer array used for writing data
  */
-unsigned char writebuf[MAX_PAGE_SIZE];
-unsigned char oobbuf[MAX_OOB_SIZE];
-unsigned char oobreadbuf[MAX_OOB_SIZE];
+static unsigned char writebuf[MAX_PAGE_SIZE];
+static unsigned char oobbuf[MAX_OOB_SIZE];
+static unsigned char oobreadbuf[MAX_OOB_SIZE];
 
 // oob layouts to pass into the kernel as default
-struct nand_oobinfo none_oobinfo = {
+static struct nand_oobinfo none_oobinfo = {
 	.useecc = MTD_NANDECC_OFF,
 };
 
-struct nand_oobinfo jffs2_oobinfo = {
+static struct nand_oobinfo jffs2_oobinfo = {
 	.useecc = MTD_NANDECC_PLACE,
 	.eccbytes = 6,
 	.eccpos = { 0, 1, 2, 3, 6, 7 }
 };
 
-struct nand_oobinfo yaffs_oobinfo = {
+static struct nand_oobinfo yaffs_oobinfo = {
 	.useecc = MTD_NANDECC_PLACE,
 	.eccbytes = 6,
 	.eccpos = { 8, 9, 10, 13, 14, 15}
 };
 
-struct nand_oobinfo autoplace_oobinfo = {
+static struct nand_oobinfo autoplace_oobinfo = {
 	.useecc = MTD_NANDECC_AUTOPLACE
 };
 
-void display_help (void)
+static void display_help (void)
 {
-	printf("Usage: nandwrite [OPTION] MTD_DEVICE INPUTFILE\n"
-			"Writes to the specified MTD device.\n"
-			"\n"
-			"  -a, --autoplace	Use auto oob layout\n"
-			"  -j, --jffs2		force jffs2 oob layout (legacy support)\n"
-			"  -y, --yaffs		force yaffs oob layout (legacy support)\n"
-			"  -f, --forcelegacy	force legacy support on autoplacement enabled mtd device\n"
-			"  -m, --markbad		mark blocks bad if write fails\n"
-			"  -n, --noecc		write without ecc\n"
-			"  -o, --oob		image contains oob data\n"
-			"  -s addr, --start=addr set start address (default is 0)\n"
-			"  -p, --pad             pad to page size\n"
-			"  -b, --blockalign=1|2|4 set multiple of eraseblocks to align to\n"
-			"  -q, --quiet		don't display progress messages\n"
-			"      --help		display this help and exit\n"
-			"      --version		output version information and exit\n");
-	exit(0);
+	printf(
+"Usage: nandwrite [OPTION] MTD_DEVICE [INPUTFILE|-]\n"
+"Writes to the specified MTD device.\n"
+"\n"
+"  -a, --autoplace         Use auto oob layout\n"
+"  -j, --jffs2             Force jffs2 oob layout (legacy support)\n"
+"  -y, --yaffs             Force yaffs oob layout (legacy support)\n"
+"  -f, --forcelegacy       Force legacy support on autoplacement-enabled mtd\n"
+"                          device\n"
+"  -m, --markbad           Mark blocks bad if write fails\n"
+"  -n, --noecc             Write without ecc\n"
+"  -o, --oob               Image contains oob data\n"
+"  -s addr, --start=addr   Set start address (default is 0)\n"
+"  -p, --pad               Pad to page size\n"
+"  -b, --blockalign=1|2|4  Set multiple of eraseblocks to align to\n"
+"  -q, --quiet             Don't display progress messages\n"
+"      --help              Display this help and exit\n"
+"      --version           Output version information and exit\n"
+	);
+	exit (EXIT_SUCCESS);
 }
 
-void display_version (void)
+static void display_version (void)
 {
 	printf(PROGRAM " " VERSION "\n"
 			"\n"
@@ -103,23 +109,24 @@ void display_version (void)
 			"You may redistribute copies of " PROGRAM "\n"
 			"under the terms of the GNU General Public Licence.\n"
 			"See the file `COPYING' for more information.\n");
-	exit(0);
+	exit (EXIT_SUCCESS);
 }
 
-char	*mtd_device, *img;
-int	mtdoffset = 0;
-int	quiet = 0;
-int	writeoob = 0;
-int	markbad = 0;
-int	autoplace = 0;
-int	forcejffs2 = 0;
-int	forceyaffs = 0;
-int	forcelegacy = 0;
-int	noecc = 0;
-int	pad = 0;
-int	blockalign = 1; /*default to using 16K block size */
+static const char	*standard_input = "-";
+static const char	*mtd_device, *img;
+static int		mtdoffset = 0;
+static bool		quiet = false;
+static bool		writeoob = false;
+static bool		autoplace = false;
+static bool		markbad = false;
+static bool		forcejffs2 = false;
+static bool		forceyaffs = false;
+static bool		forcelegacy = false;
+static bool		noecc = false;
+static bool		pad = false;
+static int		blockalign = 1; /*default to using 16K block size */
 
-void process_options (int argc, char *argv[])
+static void process_options (int argc, char * const argv[])
 {
 	int error = 0;
 
@@ -161,31 +168,31 @@ void process_options (int argc, char *argv[])
 				}
 				break;
 			case 'q':
-				quiet = 1;
+				quiet = true;
 				break;
 			case 'a':
-				autoplace = 1;
+				autoplace = true;
 				break;
 			case 'j':
-				forcejffs2 = 1;
+				forcejffs2 = true;
 				break;
 			case 'y':
-				forceyaffs = 1;
+				forceyaffs = true;
 				break;
 			case 'f':
-				forcelegacy = 1;
+				forcelegacy = true;
 				break;
 			case 'n':
-				noecc = 1;
+				noecc = true;
 				break;
 			case 'm':
-				markbad = 1;
+				markbad = true;
 				break;
 			case 'o':
-				writeoob = 1;
+				writeoob = true;
 				break;
 			case 'p':
-				pad = 1;
+				pad = true;
 				break;
 			case 's':
 				mtdoffset = strtol (optarg, NULL, 0);
@@ -194,51 +201,87 @@ void process_options (int argc, char *argv[])
 				blockalign = atoi (optarg);
 				break;
 			case '?':
-				error = 1;
+				error++;
 				break;
 		}
 	}
 
-	if ((argc - optind) != 2 || error)
+	if (mtdoffset < 0) {
+		fprintf(stderr, "Can't specify a negative device offset `%d'\n",
+				mtdoffset);
+		exit (EXIT_FAILURE);
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	/*
+	 * There must be at least the MTD device node positional
+	 * argument remaining and, optionally, the input file.
+	 */
+
+	if (argc < 1 || argc > 2 || error)
 		display_help ();
 
-	mtd_device = argv[optind++];
-	img = argv[optind];
+	mtd_device = argv[0];
+
+	/*
+	 * Standard input may be specified either explictly as "-" or
+	 * implicity by simply omitting the second of the two
+	 * positional arguments.
+	 */
+
+	img = ((argc == 2) ? argv[1] : standard_input);
+}
+
+static void erase_buffer(void *buffer, size_t size)
+{
+	const uint8_t kEraseByte = 0xff;
+
+	if (buffer != NULL && size > 0) {
+		memset(buffer, kEraseByte, size);
+	}
 }
 
 /*
  * Main program
  */
-int main(int argc, char **argv)
+int main(int argc, char * const argv[])
 {
-	int cnt, fd, ifd, imglen = 0, pagelen, baderaseblock, blockstart = -1;
+	int cnt = 0;
+	int fd = -1;
+	int ifd = -1;
+	int imglen = 0, pagelen;
+	bool baderaseblock = false;
+	int blockstart = -1;
 	struct mtd_info_user meminfo;
 	struct mtd_oob_buf oob;
 	loff_t offs;
 	int ret, readlen;
 	int oobinfochanged = 0;
 	struct nand_oobinfo old_oobinfo;
+	int readcnt = 0;
 
 	process_options(argc, argv);
 
-	memset(oobbuf, 0xff, sizeof(oobbuf));
+	erase_buffer(oobbuf, sizeof(oobbuf));
 
 	if (pad && writeoob) {
 		fprintf(stderr, "Can't pad when oob data is present.\n");
-		exit(1);
+		exit (EXIT_FAILURE);
 	}
 
 	/* Open the device */
 	if ((fd = open(mtd_device, O_RDWR)) == -1) {
-		perror("open flash");
-		exit(1);
+		perror(mtd_device);
+		exit (EXIT_FAILURE);
 	}
 
 	/* Fill in MTD device capability structure */
 	if (ioctl(fd, MEMGETINFO, &meminfo) != 0) {
 		perror("MEMGETINFO");
 		close(fd);
-		exit(1);
+		exit (EXIT_FAILURE);
 	}
 
 	/* Set erasesize to specified number of blocks - to match jffs2
@@ -248,10 +291,11 @@ int main(int argc, char **argv)
 	/* Make sure device page sizes are valid */
 	if (!(meminfo.oobsize == 16 && meminfo.writesize == 512) &&
 			!(meminfo.oobsize == 8 && meminfo.writesize == 256) &&
-			!(meminfo.oobsize == 64 && meminfo.writesize == 2048)) {
+			!(meminfo.oobsize == 64 && meminfo.writesize == 2048) &&
+			!(meminfo.oobsize == 128 && meminfo.writesize == 4096)) {
 		fprintf(stderr, "Unknown flash (not normal NAND)\n");
 		close(fd);
-		exit(1);
+		exit (EXIT_FAILURE);
 	}
 
 	if (autoplace) {
@@ -259,7 +303,7 @@ int main(int argc, char **argv)
 		if (ioctl (fd, MEMGETOOBSEL, &old_oobinfo) != 0) {
 			perror ("MEMGETOOBSEL");
 			close (fd);
-			exit (1);
+			exit (EXIT_FAILURE);
 		}
 
 		// autoplace ECC ?
@@ -268,7 +312,7 @@ int main(int argc, char **argv)
 			if (ioctl (fd, MEMSETOOBSEL, &autoplace_oobinfo) != 0) {
 				perror ("MEMSETOOBSEL");
 				close (fd);
-				exit (1);
+				exit (EXIT_FAILURE);
 			}
 			oobinfochanged = 1;
 		}
@@ -284,19 +328,19 @@ int main(int argc, char **argv)
 				if (ioctl (fd, MEMGETOOBSEL, &old_oobinfo) != 0) {
 					perror ("MEMGETOOBSEL");
 					close (fd);
-					exit (1);
+					exit (EXIT_FAILURE);
 				}
 				if (ioctl (fd, MEMSETOOBSEL, &none_oobinfo) != 0) {
 					perror ("MEMSETOOBSEL");
 					close (fd);
-					exit (1);
+					exit (EXIT_FAILURE);
 				}
 				oobinfochanged = 1;
 				break;
 			default:
 				perror ("MTDFILEMODE");
 				close (fd);
-				exit (1);
+				exit (EXIT_FAILURE);
 			}
 		}
 	}
@@ -334,21 +378,48 @@ int main(int argc, char **argv)
 	oob.length = meminfo.oobsize;
 	oob.ptr = noecc ? oobreadbuf : oobbuf;
 
-	/* Open the input file */
-	if ((ifd = open(img, O_RDONLY)) == -1) {
-		perror("open input file");
+	/* Determine if we are reading from standard input or from a file. */
+	if (strcmp(img, standard_input) == 0) {
+		ifd = STDIN_FILENO;
+	} else {
+		ifd = open(img, O_RDONLY);
+	}
+
+	if (ifd == -1) {
+		perror(img);
 		goto restoreoob;
 	}
 
-	// get image length
-	imglen = lseek(ifd, 0, SEEK_END);
-	lseek (ifd, 0, SEEK_SET);
+	/* For now, don't allow writing oob when reading from standard input. */
+	if (ifd == STDIN_FILENO && writeoob) {
+		fprintf(stderr, "Can't write oob when reading from standard input.\n");
+		goto closeall;
+	}
 
-	pagelen = meminfo.writesize + ((writeoob == 1) ? meminfo.oobsize : 0);
+	pagelen = meminfo.writesize + ((writeoob) ? meminfo.oobsize : 0);
 
-	// Check, if file is pagealigned
+	/*
+	 * For the standard input case, the input size is merely an
+	 * invariant placeholder and is set to the write page
+	 * size. Otherwise, just use the input file size.
+	 *
+	 * TODO: Add support for the -l,--length=length option (see
+	 * previous discussion by Tommi Airikka <tommi.airikka@ericsson.com> at
+	 * <http://lists.infradead.org/pipermail/linux-mtd/2008-September/
+	 * 022913.html>
+	 */
+
+	if (ifd == STDIN_FILENO) {
+	    imglen = pagelen;
+	} else {
+	    imglen = lseek(ifd, 0, SEEK_END);
+	    lseek (ifd, 0, SEEK_SET);
+	}
+
+	// Check, if file is page-aligned
 	if ((!pad) && ((imglen % pagelen) != 0)) {
-		fprintf (stderr, "Input file is not page aligned\n");
+		fprintf (stderr, "Input file is not page-aligned. Use the padding "
+				 "option.\n");
 		goto closeall;
 	}
 
@@ -360,7 +431,13 @@ int main(int argc, char **argv)
 		goto closeall;
 	}
 
-	/* Get data from input and write to the device */
+	/*
+	 * Get data from input and write to the device while there is
+	 * still input to read and we are still within the device
+	 * bounds. Note that in the case of standard input, the input
+	 * length is simply a quasi-boolean flag whose values are page
+	 * length or zero.
+	 */
 	while (imglen && (mtdoffset < meminfo.size)) {
 		// new eraseblock , check for bad block(s)
 		// Stay in the loop to be sure if the mtdoffset changes because
@@ -371,9 +448,10 @@ int main(int argc, char **argv)
 		while (blockstart != (mtdoffset & (~meminfo.erasesize + 1))) {
 			blockstart = mtdoffset & (~meminfo.erasesize + 1);
 			offs = blockstart;
-			baderaseblock = 0;
+			baderaseblock = false;
 			if (!quiet)
-				fprintf (stdout, "Writing data to block %x\n", blockstart);
+				fprintf (stdout, "Writing data to block %d at offset 0x%x\n",
+						 blockstart / meminfo.erasesize, blockstart);
 
 			/* Check all the blocks in an erase block for bad blocks */
 			do {
@@ -382,7 +460,7 @@ int main(int argc, char **argv)
 					goto closeall;
 				}
 				if (ret == 1) {
-					baderaseblock = 1;
+					baderaseblock = true;
 					if (!quiet)
 						fprintf (stderr, "Bad block at %x, %u block(s) "
 								"from %x will be skipped\n",
@@ -398,26 +476,72 @@ int main(int argc, char **argv)
 		}
 
 		readlen = meminfo.writesize;
-		if (pad && (imglen < readlen))
-		{
-			readlen = imglen;
-			memset(writebuf + readlen, 0xff, meminfo.writesize - readlen);
-		}
 
-		/* Read Page Data from input file */
-		if ((cnt = read(ifd, writebuf, readlen)) != readlen) {
-			if (cnt == 0)	// EOF
+		if (ifd != STDIN_FILENO) {
+			int tinycnt = 0;
+
+			if (pad && (imglen < readlen))
+			{
+				readlen = imglen;
+				erase_buffer(writebuf + readlen, meminfo.writesize - readlen);
+			}
+
+			/* Read Page Data from input file */
+			while(tinycnt < readlen) {
+				cnt = read(ifd, writebuf + tinycnt, readlen - tinycnt);
+				if (cnt == 0) { // EOF
+					break;
+				} else if (cnt < 0) {
+					perror ("File I/O error on input file");
+					goto closeall;
+				}
+				tinycnt += cnt;
+			}
+		} else {
+			int tinycnt = 0;
+
+			while(tinycnt < readlen) {
+				cnt = read(ifd, writebuf + tinycnt, readlen - tinycnt);
+				if (cnt == 0) { // EOF
+					break;
+				} else if (cnt < 0) {
+					perror ("File I/O error on stdin");
+					goto closeall;
+				}
+				tinycnt += cnt;
+			}
+
+			/* No padding needed - we are done */
+			if (tinycnt == 0) {
+				imglen = 0;
 				break;
-			perror ("File I/O error on input file");
-			goto closeall;
+			}
+
+			/* No more bytes - we are done after writing the remaining bytes */
+			if (cnt == 0) {
+				imglen = 0;
+			}
+
+			/* Padding */
+			if (pad && (tinycnt < readlen)) {
+				erase_buffer(writebuf + tinycnt, meminfo.writesize - tinycnt);
+			}
 		}
 
 		if (writeoob) {
-			/* Read OOB data from input file, exit on failure */
-			if ((cnt = read(ifd, oobreadbuf, meminfo.oobsize)) != meminfo.oobsize) {
-				perror ("File I/O error on input file");
-				goto closeall;
+			int tinycnt = 0;
+
+			while(tinycnt < readlen) {
+				cnt = read(ifd, oobreadbuf + tinycnt, meminfo.oobsize - tinycnt);
+				if (cnt == 0) { // EOF
+					break;
+				} else if (cnt < 0) {
+					perror ("File I/O error on input file");
+					goto closeall;
+				}
+				tinycnt += cnt;
 			}
+
 			if (!noecc) {
 				int i, start, len;
 				/*
@@ -493,7 +617,9 @@ int main(int argc, char **argv)
 
 			continue;
 		}
-		imglen -= readlen;
+		if (ifd != STDIN_FILENO) {
+			imglen -= readlen;
+		}
 		mtdoffset += meminfo.writesize;
 	}
 
@@ -505,17 +631,17 @@ restoreoob:
 		if (ioctl (fd, MEMSETOOBSEL, &old_oobinfo) != 0) {
 			perror ("MEMSETOOBSEL");
 			close (fd);
-			exit (1);
+			exit (EXIT_FAILURE);
 		}
 	}
 
 	close(fd);
 
-	if (imglen > 0) {
+	if ((ifd != STDIN_FILENO) && (imglen > 0)) {
 		perror ("Data was only partially written due to error\n");
-		exit (1);
+		exit (EXIT_FAILURE);
 	}
 
 	/* Return happy */
-	return 0;
+	return EXIT_SUCCESS;
 }
