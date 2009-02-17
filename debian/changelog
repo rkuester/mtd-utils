@@ -1,3 +1,12 @@
+mtd-utils (20090217-1) unstable; urgency=low
+
+  [ Riku Voipio ]
+  * New upstream snapshot
+  *  Adds mkfs.ubifs !
+  *  lots of fixes
+
+ -- Riku Voipio <riku.voipio@iki.fi>  Tue, 17 Feb 2009 20:38:54 +0200
+
 mtd-utils (20080508-1) unstable; urgency=low
 
   [ Riku Voipio ]
