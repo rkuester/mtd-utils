@@ -24,13 +24,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <dirent.h>
 #include <unistd.h>
-#include <sys/ioctl.h>
 #include <limits.h>
-#include "libubi.h"
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <libubi.h>
 #include "libubi_int.h"
 #include "common.h"
 
@@ -94,7 +94,6 @@ static int read_positive_ll(const char *file, long long *value)
 	}
 
 	if (sscanf(buf, "%lld\n", value) != 1) {
-		/* This must be a UBI bug */
 		errmsg("cannot read integer from \"%s\"\n", file);
 		errno = EINVAL;
 		goto out_error;
@@ -227,7 +226,7 @@ static int read_major(const char *file, int *major, int *minor)
 /**
  * dev_read_int - read a positive 'int' value from an UBI device sysfs file.
  * @patt: file pattern to read from
- * @dev_num:  UBI device number
+ * @dev_num: UBI device number
  * @value: the result is stored here
  *
  * This function returns %0 in case of success and %-1 in case of failure.
@@ -422,9 +421,9 @@ static int vol_node2nums(struct libubi *lib, const char *node, int *dev_num,
  * dev_node2num - find UBI device number by its character device node.
  * @lib: UBI library descriptor
  * @node: UBI character device node name
+ * @dev_num: UBI device number is returned here
  *
- * This function returns positive UBI device number in case of success and %-1
- * in case of failure.
+ * This function returns %0 in case of success and %-1 in case of failure.
  */
 static int dev_node2num(struct libubi *lib, const char *node, int *dev_num)
 {
@@ -433,8 +432,7 @@ static int dev_node2num(struct libubi *lib, const char *node, int *dev_num)
 	int i, major, minor;
 
 	if (stat(node, &st))
-		return sys_errmsg("cannot get information about \"%s\"",
-				  node);
+		return sys_errmsg("cannot get information about \"%s\"", node);
 
 	if (!S_ISCHR(st.st_mode)) {
 		errno = EINVAL;
@@ -507,7 +505,7 @@ int mtd_num2ubi_dev(libubi_t desc, int mtd_num, int *dev_num)
 	return -1;
 }
 
-libubi_t libubi_open(int required)
+libubi_t libubi_open(void)
 {
 	int fd, version;
 	struct libubi *lib;
@@ -516,12 +514,7 @@ libubi_t libubi_open(int required)
 	if (!lib)
 		return NULL;
 
-	/* TODO: this must be discovered instead */
-	lib->sysfs = strdup("/sys");
-	if (!lib->sysfs)
-		goto out_error;
-
-	lib->sysfs_ctrl = mkpath(lib->sysfs, SYSFS_CTRL);
+	lib->sysfs_ctrl = mkpath("/sys", SYSFS_CTRL);
 	if (!lib->sysfs_ctrl)
 		goto out_error;
 
@@ -529,16 +522,14 @@ libubi_t libubi_open(int required)
 	if (!lib->ctrl_dev)
 		goto out_error;
 
-	lib->sysfs_ubi = mkpath(lib->sysfs, SYSFS_UBI);
+	lib->sysfs_ubi = mkpath("/sys", SYSFS_UBI);
 	if (!lib->sysfs_ubi)
 		goto out_error;
 
 	/* Make sure UBI is present */
 	fd = open(lib->sysfs_ubi, O_RDONLY);
 	if (fd == -1) {
-		if (required)
-			errmsg("cannot open \"%s\", UBI does not seem to "
-			       "exist in system", lib->sysfs_ubi);
+		errno = 0;
 		goto out_error;
 	}
 
@@ -674,7 +665,6 @@ void libubi_close(libubi_t desc)
 	free(lib->sysfs_ubi);
 	free(lib->ctrl_dev);
 	free(lib->sysfs_ctrl);
-	free(lib->sysfs);
 	free(lib);
 }
 
@@ -703,8 +693,9 @@ int ubi_attach_mtd(libubi_t desc, const char *node,
 	req->dev_num = r.ubi_num;
 
 #ifdef UDEV_SETTLE_HACK
-	if (system("udevsettle") == -1)
-		return -1;
+//	if (system("udevsettle") == -1)
+//		return -1;
+	usleep(100000);
 #endif
 
 	return ret;
@@ -737,8 +728,9 @@ int ubi_remove_dev(libubi_t desc, const char *node, int ubi_dev)
 		goto out_close;
 
 #ifdef UDEV_SETTLE_HACK
-	if (system("udevsettle") == -1)
-		return -1;
+//	if (system("udevsettle") == -1)
+//		return -1;
+	usleep(100000);
 #endif
 
 out_close:
@@ -746,7 +738,7 @@ out_close:
 	return ret;
 }
 
-int ubi_node_type(libubi_t desc, const char *node)
+int ubi_probe_node(libubi_t desc, const char *node)
 {
 	struct stat st;
 	struct ubi_info info;
@@ -755,8 +747,7 @@ int ubi_node_type(libubi_t desc, const char *node)
 	char file[strlen(lib->ubi_vol) + 100];
 
 	if (stat(node, &st))
-		return sys_errmsg("cannot get information about \"%s\"",
-				  node);
+		return sys_errmsg("cannot get information about \"%s\"", node);
 
 	if (!S_ISCHR(st.st_mode)) {
 		errmsg("\"%s\" is not a character device", node);
@@ -795,17 +786,15 @@ int ubi_node_type(libubi_t desc, const char *node)
 	/* This is supposdely an UBI volume device node */
 	sprintf(file, lib->ubi_vol, i, minor - 1);
 	fd = open(file, O_RDONLY);
-	if (fd == -1) {
-		sys_errmsg("cannot open \"%s\"", node);
-		return -1;
-	}
+	if (fd == -1)
+		goto out_not_ubi;
 
 	return 2;
 
 out_not_ubi:
 	errmsg("\"%s\" has major:minor %d:%d, but this does not correspond to "
-	       "any UBI device or volume", node, major, minor);
-	errno = 0;
+	       "any existing UBI device or volume", node, major, minor);
+	errno = ENODEV;
 	return -1;
 }
 
@@ -845,9 +834,10 @@ int ubi_get_info(libubi_t desc, struct ubi_info *info)
 		if (!dirent)
 			break;
 
-		if (strlen(dirent->d_name) > 256) {
+		if (strlen(dirent->d_name) >= 255) {
 			errmsg("invalid entry in %s: \"%s\"",
 			       lib->sysfs_ubi, dirent->d_name);
+			errno = EINVAL;
 			goto out_close;
 		}
 
@@ -904,24 +894,27 @@ int ubi_mkvol(libubi_t desc, const char *node, struct ubi_mkvol_request *req)
 	strncpy(r.name, req->name, UBI_MAX_VOLUME_NAME + 1);
 	r.name_len = n;
 
+	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
 		return sys_errmsg("cannot open \"%s\"", node);
 
 	ret = ioctl(fd, UBI_IOCMKVOL, &r);
-	if (ret == -1)
-		goto out_close;
+	if (ret == -1) {
+		close(fd);
+		return ret;
+	}
 
+	close(fd);
 	req->vol_id = r.vol_id;
 
 #ifdef UDEV_SETTLE_HACK
-	if (system("udevsettle") == -1)
-		return -1;
+//	if (system("udevsettle") == -1)
+//		return -1;
+	usleep(100000);
 #endif
 
-out_close:
-	close(fd);
-	return ret;
+	return 0;
 }
 
 int ubi_rmvol(libubi_t desc, const char *node, int vol_id)
@@ -934,38 +927,46 @@ int ubi_rmvol(libubi_t desc, const char *node, int vol_id)
 		return sys_errmsg("cannot open \"%s\"", node);
 
 	ret = ioctl(fd, UBI_IOCRMVOL, &vol_id);
-	if (ret == -1)
-		goto out_close;
+	if (ret == -1) {
+		close(fd);
+		return ret;
+	}
+
+	close(fd);
 
 #ifdef UDEV_SETTLE_HACK
-	if (system("udevsettle") == -1)
-		return -1;
+//	if (system("udevsettle") == -1)
+//		return -1;
+	usleep(100000);
 #endif
 
-out_close:
-	close(fd);
-	return ret;
+	return 0;
 }
 
 int ubi_rnvols(libubi_t desc, const char *node, struct ubi_rnvol_req *rnvol)
 {
 	int fd, ret;
 
+	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
 		return -1;
+
 	ret = ioctl(fd, UBI_IOCRNVOL, rnvol);
-	if (ret == -1)
-		goto out_close;
+	if (ret == -1) {
+		close(fd);
+		return ret;
+	}
+
+	close(fd);
 
 #ifdef UDEV_SETTLE_HACK
-	if (system("udevsettle") == -1)
-		return -1;
+//	if (system("udevsettle") == -1)
+//		return -1;
+	usleep(100000);
 #endif
 
-out_close:
-	close(fd);
-	return ret;
+	return 0;
 }
 
 int ubi_rsvol(libubi_t desc, const char *node, int vol_id, long long bytes)
@@ -1009,6 +1010,22 @@ int ubi_leb_change_start(libubi_t desc, int fd, int lnum, int bytes, int dtype)
 	return 0;
 }
 
+/**
+ * dev_present - check whether an UBI device is present.
+ * @lib: libubi descriptor
+ * @dev_num: UBI device number to check
+ *
+ * This function returns %1 if UBI device is present and %0 if not.
+ */
+static int dev_present(struct libubi *lib, int dev_num)
+{
+	struct stat st;
+	char file[strlen(lib->ubi_dev) + 50];
+
+	sprintf(file, lib->ubi_dev, dev_num);
+	return !stat(file, &st);
+}
+
 int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info)
 {
 	DIR *sysfs_ubi;
@@ -1017,6 +1034,9 @@ int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info)
 
 	memset(info, '\0', sizeof(struct ubi_dev_info));
 	info->dev_num = dev_num;
+
+	if (!dev_present(lib, dev_num))
+		return -1;
 
 	sysfs_ubi = opendir(lib->sysfs_ubi);
 	if (!sysfs_ubi)
@@ -1033,7 +1053,7 @@ int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info)
 		if (!dirent)
 			break;
 
-		if (strlen(dirent->d_name) > 256) {
+		if (strlen(dirent->d_name) >= 255) {
 			errmsg("invalid entry in %s: \"%s\"",
 			       lib->sysfs_ubi, dirent->d_name);
 			goto out_close;
@@ -1092,8 +1112,15 @@ out_close:
 
 int ubi_get_dev_info(libubi_t desc, const char *node, struct ubi_dev_info *info)
 {
-	int dev_num;
+	int err, dev_num;
 	struct libubi *lib = (struct libubi *)desc;
+
+	err = ubi_probe_node(desc, node);
+	if (err != 1) {
+		if (err == 2)
+			errno = ENODEV;
+		return -1;
+	}
 
 	if (dev_node2num(lib, node, &dev_num))
 		return -1;
@@ -1162,8 +1189,15 @@ int ubi_get_vol_info1(libubi_t desc, int dev_num, int vol_id,
 
 int ubi_get_vol_info(libubi_t desc, const char *node, struct ubi_vol_info *info)
 {
-	int vol_id, dev_num;
+	int err, vol_id, dev_num;
 	struct libubi *lib = (struct libubi *)desc;
+
+	err = ubi_probe_node(desc, node);
+	if (err != 2) {
+		if (err == 1)
+			errno = ENODEV;
+		return -1;
+	}
 
 	if (vol_node2nums(lib, node, &dev_num, &vol_id))
 		return -1;
@@ -1203,4 +1237,20 @@ int ubi_get_vol_info1_nm(libubi_t desc, int dev_num, const char *name,
 
 	errno = ENOENT;
 	return -1;
+}
+
+int ubi_set_property(int fd, uint8_t property, uint64_t value)
+{
+	struct ubi_set_prop_req r;
+
+	memset(&r, sizeof(struct ubi_set_prop_req), '\0');
+	r.property = property;
+	r.value = value;
+
+	return ioctl(fd, UBI_IOCSETPROP, &r);
+}
+
+int ubi_leb_unmap(int fd, int lnum)
+{
+	return ioctl(fd, UBI_IOCEBUNMAP, &lnum);
 }

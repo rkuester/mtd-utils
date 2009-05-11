@@ -45,7 +45,7 @@
 #include "crc32.h"
 #include "common.h"
 
-#define PROGRAM_VERSION "1.1"
+#define PROGRAM_VERSION "1.3"
 #define PROGRAM_NAME    "ubiformat"
 
 /* The variables below are set by command line arguments */
@@ -55,6 +55,7 @@ struct args {
 	unsigned int verbose:1;
 	unsigned int override_ec:1;
 	unsigned int novtbl:1;
+	unsigned int manual_subpage;
 	int subpage_size;
 	int vid_hdr_offs;
 	int ubi_ver;
@@ -62,6 +63,7 @@ struct args {
 	long long ec;
 	const char *image;
 	const char *node;
+	int node_fd;
 };
 
 static struct args args =
@@ -259,7 +261,7 @@ static int answer_is_yes(void)
 	}
 }
 
-static void print_bad_eraseblocks(const struct mtd_info *mtd,
+static void print_bad_eraseblocks(const struct mtd_dev_info *mtd,
 				  const struct ubi_scan_info *si)
 {
 	int first = 1, eb;
@@ -301,7 +303,7 @@ static int change_ec(struct ubi_ec_hdr *hdr, long long ec)
 	return 0;
 }
 
-static int drop_ffs(const struct mtd_info *mtd, const void *buf, int len)
+static int drop_ffs(const struct mtd_dev_info *mtd, const void *buf, int len)
 {
 	int i;
 
@@ -390,7 +392,7 @@ static int consecutive_bad_check(int eb)
 	return 0;
 }
 
-static int mark_bad(const struct mtd_info *mtd, struct ubi_scan_info *si, int eb)
+static int mark_bad(const struct mtd_dev_info *mtd, struct ubi_scan_info *si, int eb)
 {
 	int err;
 
@@ -406,13 +408,13 @@ static int mark_bad(const struct mtd_info *mtd, struct ubi_scan_info *si, int eb
 	if (!args.quiet)
 		printf("\n");
 
-	if (!mtd->allows_bb) {
+	if (!mtd->bb_allowed) {
 		if (!args.quiet)
 			printf("\n");
 		return errmsg("bad blocks not supported by this flash");
 	}
 
-	err = mtd_mark_bad(mtd, eb);
+	err = mtd_mark_bad(mtd, args.node_fd, eb);
 	if (err)
 		return err;
 
@@ -422,7 +424,7 @@ static int mark_bad(const struct mtd_info *mtd, struct ubi_scan_info *si, int eb
 	return consecutive_bad_check(eb);
 }
 
-static int flash_image(const struct mtd_info *mtd, struct ubi_scan_info *si)
+static int flash_image(const struct mtd_dev_info *mtd, struct ubi_scan_info *si)
 {
 	int fd, img_ebs, eb, written_ebs = 0, divisor;
 	off_t st_size;
@@ -468,7 +470,7 @@ static int flash_image(const struct mtd_info *mtd, struct ubi_scan_info *si)
 			fflush(stdout);
 		}
 
-		err = mtd_erase(mtd, eb);
+		err = mtd_erase(mtd, args.node_fd, eb);
 		if (err) {
 			if (!args.quiet)
 				printf("\n");
@@ -518,7 +520,7 @@ static int flash_image(const struct mtd_info *mtd, struct ubi_scan_info *si)
 
 		new_len = drop_ffs(mtd, buf, mtd->eb_size);
 
-		err = mtd_write(mtd, eb, 0, buf, new_len);
+		err = mtd_write(mtd, args.node_fd, eb, 0, buf, new_len);
 		if (err) {
 			if (!args.quiet)
 				printf("\n");
@@ -550,7 +552,7 @@ out_close:
 	return -1;
 }
 
-static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
+static int format(const struct mtd_dev_info *mtd, const struct ubigen_info *ui,
 		  struct ubi_scan_info *si, int start_eb, int novtbl)
 {
 	int eb, err, write_size;
@@ -565,7 +567,6 @@ static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
 	hdr = malloc(write_size);
 	if (!hdr)
 		return sys_errmsg("cannot allocate %d bytes of memory", write_size);
-
 	memset(hdr, 0xFF, write_size);
 
 	for (eb = start_eb; eb < mtd->eb_cnt; eb++) {
@@ -593,7 +594,7 @@ static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
 			fflush(stdout);
 		}
 
-		err = mtd_erase(mtd, eb);
+		err = mtd_erase(mtd, args.node_fd, eb);
 		if (err) {
 			if (!args.quiet)
 				printf("\n");
@@ -625,7 +626,7 @@ static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
 			fflush(stdout);
 		}
 
-		err = mtd_write(mtd, eb, 0, hdr, write_size);
+		err = mtd_write(mtd, args.node_fd, eb, 0, hdr, write_size);
 		if (err) {
 			if (!args.quiet && !args.verbose)
 				printf("\n");
@@ -633,9 +634,9 @@ static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
 				   write_size, eb);
 
 			if (errno != EIO) {
-				if (args.subpage_size != mtd->min_io_size)
-					normsg("may be %d is incorrect?",
-							args.subpage_size);
+				if (!args.subpage_size != mtd->min_io_size)
+					normsg("may be sub-page size is "
+					       "incorrect?");
 				goto out_free;
 			}
 
@@ -662,7 +663,8 @@ static int format(const struct mtd_info *mtd, const struct ubigen_info *ui,
 		if (!vtbl)
 			goto out_free;
 
-		err = ubigen_write_layout_vol(ui, eb1, eb2, ec1,  ec2, vtbl, mtd->fd);
+		err = ubigen_write_layout_vol(ui, eb1, eb2, ec1,  ec2, vtbl,
+					      args.node_fd);
 		free(vtbl);
 		if (err) {
 			errmsg("cannot write layout volume");
@@ -681,31 +683,74 @@ out_free:
 int main(int argc, char * const argv[])
 {
 	int err, verbose;
-	struct mtd_info mtd;
+	libmtd_t libmtd;
+	struct mtd_info mtd_info;
+	struct mtd_dev_info mtd;
 	libubi_t libubi;
 	struct ubigen_info ui;
 	struct ubi_scan_info *si;
 
+	libmtd = libmtd_open();
+	if (!libmtd)
+		return errmsg("MTD subsystem is not present");
+
 	err = parse_opt(argc, argv);
 	if (err)
-		return -1;
+		goto out_close_mtd;
 
-	err = mtd_get_info(args.node, &mtd);
-	if (err)
-		return errmsg("cannot get information about \"%s\"", args.node);
+	err = mtd_get_info(libmtd, &mtd_info);
+	if (err) {
+		if (errno == ENODEV)
+			errmsg("MTD is not present");
+		sys_errmsg("cannot get MTD information");
+		goto out_close_mtd;
+	}
 
-	if (args.subpage_size == 0)
-		args.subpage_size = mtd.min_io_size;
-	else {
+	err = mtd_get_dev_info(libmtd, args.node, &mtd);
+	if (err) {
+		sys_errmsg("cannot get information about \"%s\"", args.node);
+		goto out_close_mtd;
+	}
+
+	if (!mtd_info.sysfs_supported) {
+		/*
+		 * Linux kernels older than 2.6.30 did not support sysfs
+		 * interface, and it is impossible to find out sub-page
+		 * size in these kernels. This is why users should
+		 * provide -s option.
+		 */
+		if (args.subpage_size == 0) {
+			warnmsg("your MTD system is old and it is impossible "
+				"to detect sub-page size. Use -s to get rid "
+				"of this warning");
+			normsg("assume sub-page to be %d", mtd.subpage_size);
+		} else {
+			mtd.subpage_size = args.subpage_size;
+			args.manual_subpage = 1;
+		}
+	} else if (args.subpage_size && args.subpage_size != mtd.subpage_size) {
+		mtd.subpage_size = args.subpage_size;
+		args.manual_subpage = 1;
+	}
+
+	if (args.manual_subpage) {
+		/* Do some sanity check */
 		if (args.subpage_size > mtd.min_io_size) {
 			errmsg("sub-page cannot be larger than min. I/O unit");
 			goto out_close;
 		}
 
 		if (mtd.min_io_size % args.subpage_size) {
-			errmsg("min. I/O unit size should be multiple of sub-page size");
+			errmsg("min. I/O unit size should be multiple of "
+			       "sub-page size");
 			goto out_close;
 		}
+	}
+
+	args.node_fd = open(args.node, O_RDWR);
+	if (args.node_fd == -1) {
+		sys_errmsg("cannot open \"%s\"", args.node);
+		goto out_close_mtd;
 	}
 
 	/* Validate VID header offset if it was specified */
@@ -720,36 +765,29 @@ int main(int argc, char * const argv[])
 		}
 	}
 
-	/*
-	 * Because of MTD interface limitations 'mtd_get_info()' cannot get
-	 * sub-page so we force the user to pass it via the command line. Let's
-	 * hope the user passed us something sane.
-	 */
-	mtd.subpage_size = args.subpage_size;
-
-	if (mtd.rdonly) {
-		errmsg("mtd%d (%s) is a read-only device", mtd.num, args.node);
+	if (!mtd.writable) {
+		errmsg("mtd%d (%s) is a read-only device", mtd.dev_num, args.node);
 		goto out_close;
 	}
 
 	/* Make sure this MTD device is not attached to UBI */
-	libubi = libubi_open(0);
+	libubi = libubi_open();
 	if (libubi) {
 		int ubi_dev_num;
 
-		err = mtd_num2ubi_dev(libubi, mtd.num, &ubi_dev_num);
+		err = mtd_num2ubi_dev(libubi, mtd.dev_num, &ubi_dev_num);
 		libubi_close(libubi);
 		if (!err) {
 			errmsg("please, first detach mtd%d (%s) from ubi%d",
-			       mtd.num, args.node, ubi_dev_num);
+			       mtd.dev_num, args.node, ubi_dev_num);
 			goto out_close;
 		}
 	}
 
 	if (!args.quiet) {
-		normsg_cont("mtd%d (%s), size ", mtd.num, mtd.type_str);
+		normsg_cont("mtd%d (%s), size ", mtd.dev_num, mtd.type_str);
 		ubiutils_print_bytes(mtd.size, 1);
-		printf(", %d eraseblocks of ", mtd.eb_size);
+		printf(", %d eraseblocks of ", mtd.eb_cnt);
 		ubiutils_print_bytes(mtd.eb_size, 1);
 		printf(", min. I/O size %d bytes\n", mtd.min_io_size);
 	}
@@ -760,9 +798,9 @@ int main(int argc, char * const argv[])
 		verbose = 2;
 	else
 		verbose = 1;
-	err = ubi_scan(&mtd, &si, verbose);
+	err = ubi_scan(&mtd, args.node_fd, &si, verbose);
 	if (err) {
-		errmsg("failed to scan mtd%d (%s)", mtd.num, args.node);
+		errmsg("failed to scan mtd%d (%s)", mtd.dev_num, args.node);
 		goto out_close;
 	}
 
@@ -772,7 +810,8 @@ int main(int argc, char * const argv[])
 	}
 
 	if (si->good_cnt < 2 && (!args.novtbl || args.image)) {
-		errmsg("too few non-bad eraseblocks (%d) on mtd%d", si->good_cnt, mtd.num);
+		errmsg("too few non-bad eraseblocks (%d) on mtd%d",
+		       si->good_cnt, mtd.dev_num);
 		goto out_free;
 	}
 
@@ -837,7 +876,7 @@ int main(int argc, char * const argv[])
 	if (!args.quiet && args.override_ec)
 		normsg("use erase counter %lld for all eraseblocks", args.ec);
 
-	ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, args.subpage_size,
+	ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, mtd.subpage_size,
 			 args.vid_hdr_offs, args.ubi_ver);
 
 	if (si->vid_hdr_offs != -1 && ui.vid_hdr_offs != si->vid_hdr_offs) {
@@ -847,19 +886,19 @@ int main(int argc, char * const argv[])
 		 */
 		if (!args.yes || !args.quiet) {
 			warnmsg("VID header and data offsets on flash are %d and %d, "
-				"which is different to calculated offsets %d and %d",
+				"which is different to requested offsets %d and %d",
 				si->vid_hdr_offs, si->data_offs, ui.vid_hdr_offs,
 				ui.data_offs);
 			normsg_cont("use new offsets %d and %d? (yes/no)  ",
-				    si->vid_hdr_offs, si->data_offs);
+				    ui.vid_hdr_offs, ui.data_offs);
 		}
 		if (args.yes || answer_is_yes()) {
 			if (args.yes && !args.quiet)
 				printf("yes\n");
-		} else {
-			ui.vid_hdr_offs = si->vid_hdr_offs;
-			ui.data_offs = si->data_offs;
-		}
+		} else
+			ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, 0,
+					 si->vid_hdr_offs, args.ubi_ver);
+		normsg("use offsets %d and %d",  ui.vid_hdr_offs, ui.data_offs);
 	}
 
 	if (args.image) {
@@ -877,12 +916,15 @@ int main(int argc, char * const argv[])
 	}
 
 	ubi_scan_free(si);
-	close(mtd.fd);
+	close(args.node_fd);
+	libmtd_close(libmtd);
 	return 0;
 
 out_free:
 	ubi_scan_free(si);
 out_close:
-	close(mtd.fd);
+	close(args.node_fd);
+out_close_mtd:
+	libmtd_close(libmtd);
 	return -1;
 }

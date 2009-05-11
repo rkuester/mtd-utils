@@ -39,8 +39,8 @@ extern "C" {
 typedef void * libubi_t;
 
 /**
- * struct ubi_attach_request - MTD device attachement request.
- * @dev_num: number to assigne to the newly created UBI device
+ * struct ubi_attach_request - MTD device attachment request.
+ * @dev_num: number to assign to the newly created UBI device
  *           (%UBI_DEV_NUM_AUTO should be used to automatically assign the
  *           number)
  * @mtd_num: MTD device number to attach
@@ -140,7 +140,7 @@ struct ubi_dev_info
  * @dev_major: major number of corresponding UBI device character device
  * @dev_minor: minor number of corresponding UBI device character device
  * @type: volume type (%UBI_DYNAMIC_VOLUME or %UBI_STATIC_VOLUME)
- * @alignment: alignemnt of this volume
+ * @alignment: alignment of this volume
  * @data_bytes: how many data bytes are stored on this volume (equivalent to
  *              @rsvd_bytes for dynamic volumes)
  * @rsvd_bytes: how many bytes are reserved for this volume
@@ -170,17 +170,17 @@ struct ubi_vol_info
 
 /**
  * libubi_open - open UBI library.
- * @required: if non-zero, libubi will print an error messages if this UBI is
- *            not present in the system
  *
  * This function initializes and opens the UBI library and returns UBI library
- * descriptor in case of success and %NULL in case of failure.
+ * descriptor in case of success and %NULL in case of failure. In case of
+ * failure, errno contains the error code or zero if UBI is not present in the
+ * system.
  */
-libubi_t libubi_open(int required);
+libubi_t libubi_open(void);
 
 /**
  * libubi_close - close UBI library.
- * @desc UBI library descriptor
+ * @desc: UBI library descriptor
  */
 void libubi_close(libubi_t desc);
 
@@ -289,16 +289,16 @@ int ubi_rnvols(libubi_t desc, const char *node, struct ubi_rnvol_req *rnvol);
 int ubi_rsvol(libubi_t desc, const char *node, int vol_id, long long bytes);
 
 /**
- * ubi_node_type - test UBI node type.
+ * ubi_probe_node - test UBI node.
  * @desc: UBI library descriptor
  * @node: the node to test
  *
  * This function tests whether @node is a UBI device or volume node and returns
  * %1 if this is an UBI device node, %2 if this is a volume node, and %-1 if
- * this is not an UBI node or if an error occurred (the latter is indicated by
- * a non-zero errno).
+ * this is not an UBI device or volume node (errno is ENODEV in this case) or
+ * if an error occurred.
  */
-int ubi_node_type(libubi_t desc, const char *node);
+int ubi_probe_node(libubi_t desc, const char *node);
 
 /**
  * ubi_get_dev_info - get UBI device information.
@@ -307,7 +307,8 @@ int ubi_node_type(libubi_t desc, const char *node);
  * @info: pointer to the &struct ubi_dev_info object to fill
  *
  * This function fills the passed @info object with UBI device information and
- * returns %0 in case of success and %-1 in case of failure.
+ * returns %0 in case of success and %-1 in case of failure. If the UBI device
+ * corresponding to @node does not exist, errno is set to @ENODEV.
  */
 int ubi_get_dev_info(libubi_t desc, const char *node,
 		     struct ubi_dev_info *info);
@@ -319,7 +320,8 @@ int ubi_get_dev_info(libubi_t desc, const char *node,
  * @info: pointer to the &struct ubi_dev_info object to fill
  *
  * This function is identical to 'ubi_get_dev_info()' except that it accepts UBI
- * device number, not UBI character device.
+ * device number, not UBI character device. If the UBI device @dev_num does not
+ * exist, errno is set to @ENODEV.
  */
 int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info);
 
@@ -330,7 +332,8 @@ int ubi_get_dev_info1(libubi_t desc, int dev_num, struct ubi_dev_info *info);
  * @info: pointer to the &struct ubi_vol_info object to fill
  *
  * This function fills the passed @info object with UBI volume information and
- * returns %0 in case of success and %-1 in case of failure.
+ * returns %0 in case of success and %-1 in case of failure. If the UBI volume
+ * corresponding to @node does not exist, errno is set to @ENODEV.
  */
 int ubi_get_vol_info(libubi_t desc, const char *node,
 		     struct ubi_vol_info *info);
@@ -343,7 +346,9 @@ int ubi_get_vol_info(libubi_t desc, const char *node,
  * @info: pointer to the &struct ubi_vol_info object to fill
  *
  * This function is identical to 'ubi_get_vol_info()' except that it accepts UBI
- * volume ID, not UBI volume character device.
+ * volume ID, not UBI volume character device. If the UBI device @dev_num does
+ * not exist, or if the UBI volume @vol_id does not exist, errno is set to
+ * @ENODEV.
  */
 int ubi_get_vol_info1(libubi_t desc, int dev_num, int vol_id,
 		      struct ubi_vol_info *info);
@@ -352,11 +357,12 @@ int ubi_get_vol_info1(libubi_t desc, int dev_num, int vol_id,
  * ubi_get_vol_info1_nm - get UBI volume information by volume name.
  * @desc: UBI library descriptor
  * @dev_num: UBI device number
- * @vol_id: ID of the UBI volume to fetch information about
+ * @name: name of the UBI volume to fetch information about
  * @info: pointer to the &struct ubi_vol_info object to fill
  *
  * This function is identical to 'ubi_get_vol_info()' except that it accepts UBI
- * volume name, not UBI volume ID.
+ * volume name, not UBI volume ID. If the UBI device @dev_num does not exist,
+ * or if the UBI volume @name does not exist, errno is set to @ENODEV.
  */
 int ubi_get_vol_info1_nm(libubi_t desc, int dev_num, const char *name,
 			 struct ubi_vol_info *info);
@@ -364,28 +370,49 @@ int ubi_get_vol_info1_nm(libubi_t desc, int dev_num, const char *name,
 /**
  * ubi_update_start - start UBI volume update.
  * @desc: UBI library descriptor
- * @fd: volume character devie file descriptor
+ * @fd: volume character device file descriptor
  * @bytes: how many bytes will be written to the volume
  *
  * This function initiates UBI volume update and returns %0 in case of success
  * and %-1 in case of error. The caller is assumed to write @bytes data to the
- * volume @fd afterwards.
+ * volume @fd afterward.
  */
 int ubi_update_start(libubi_t desc, int fd, long long bytes);
 
 /**
  * ubi_leb_change_start - start atomic LEB change.
  * @desc: UBI library descriptor
- * @fd: volume character devie file descriptor
+ * @fd: volume character device file descriptor
  * @lnum: LEB number to change
  * @bytes: how many bytes of new data will be written to the LEB
  * @dtype: data type (%UBI_LONGTERM, %UBI_SHORTTERM, %UBI_UNKNOWN)
  *
  * This function initiates atomic LEB change operation and returns %0 in case
  * of success and %-1 in case of error. he caller is assumed to write @bytes
- * data to the volume @fd afterwards.
+ * data to the volume @fd afterward.
  */
 int ubi_leb_change_start(libubi_t desc, int fd, int lnum, int bytes, int dtype);
+
+/**
+ * ubi_set_property - set volume propety.
+ * @fd: volume character device file descriptor
+ * @property: the property to change (%UBI_PROP_DIRECT_WRITE, etc)
+ * @value: new value of the changed property
+ *
+ * This function changes a property of a volume. Returns zero in case of
+ * success and a negative error code in case of error.
+ */
+int ubi_set_property(int fd, uint8_t property, uint64_t value);
+
+/**
+ * ubi_leb_unmap - unmap a logical eraseblock.
+ * @fd: volume character device file descriptor
+ * @lnum: logical eraseblock to unmap
+ *
+ * This function unmaps LEB @lnum and returns zero in case of success and a
+ * negative error code in case of error.
+ */
+int ubi_leb_unmap(int fd, int lnum);
 
 #ifdef __cplusplus
 }

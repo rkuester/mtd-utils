@@ -316,19 +316,25 @@ int main(int argc, char * const argv[])
 	if (err)
 		return -1;
 
-	libubi = libubi_open(1);
-	if (libubi == NULL) {
-		sys_errmsg("cannot open libubi");
+	libubi = libubi_open();
+	if (!libubi) {
+		if (errno == 0)
+			errmsg("UBI is not present in the system");
+		else
+			sys_errmsg("cannot open libubi");
 		goto out_libubi;
 	}
 
-	err = ubi_node_type(libubi, args.node);
+	err = ubi_probe_node(libubi, args.node);
 	if (err == 1) {
 		errmsg("\"%s\" is an UBI device node, not an UBI volume node",
 		       args.node);
 		goto out_libubi;
 	} else if (err < 0) {
-		errmsg("\"%s\" is not an UBI volume node", args.node);
+		if (errno == ENODEV)
+			errmsg("\"%s\" is not an UBI volume node", args.node);
+		else
+			sys_errmsg("error while probing \"%s\"", args.node);
 		goto out_libubi;
 	}
 

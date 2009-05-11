@@ -87,16 +87,18 @@ struct ubi_scan_info
 	int data_offs;
 };
 
-struct mtd_info;
+struct mtd_dev_info;
 
 /**
  * ubi_scan - scan an MTD device.
  * @mtd: information about the MTD device to scan
+ * @fd: MTD device node file descriptor
  * @info: the result of the scanning is returned here
  * @verbose: verbose mode: %0 - be silent, %1 - output progress information,
  *           2 - debugging output mode
  */
-int ubi_scan(struct mtd_info *mtd, struct ubi_scan_info **info, int verbose);
+int ubi_scan(struct mtd_dev_info *mtd, int fd, struct ubi_scan_info **info,
+	     int verbose);
 
 /**
  * ubi_scan_free - free scanning information.
