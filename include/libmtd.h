@@ -36,22 +36,22 @@ extern "C" {
 typedef void * libmtd_t;
 
 /**
- * @dev_count: count of MTD devices in system
- * @lowest_dev_num: lowest MTD device number
- * @highest_dev_num: highest MTD device number
+ * @mtd_dev_cnt: count of MTD devices in system
+ * @lowest_mtd_num: lowest MTD device number in system
+ * @highest_mtd_num: highest MTD device number in system
  * @sysfs_supported: non-zero if sysfs is supported by MTD
  */
 struct mtd_info
 {
-	int dev_count;
-	int lowest_dev_num;
-	int highest_dev_num;
+	int mtd_dev_cnt;
+	int lowest_mtd_num;
+	int highest_mtd_num;
 	unsigned int sysfs_supported:1;
 };
 
 /**
  * struct mtd_dev_info - information about an MTD device.
- * @dev_num: MTD device number
+ * @mtd_num: MTD device number
  * @major: major number of corresponding character device
  * @minor: minor number of corresponding character device
  * @type: flash type (constants like %MTD_NANDFLASH defined in mtd-abi.h)
@@ -69,7 +69,7 @@ struct mtd_info
  */
 struct mtd_dev_info
 {
-	int dev_num;
+	int mtd_num;
 	int major;
 	int minor;
 	int type;
@@ -129,16 +129,17 @@ int mtd_get_dev_info(libmtd_t desc, const char *node, struct mtd_dev_info *mtd);
 /**
  * mtd_get_dev_info1 - get information about an MTD device.
  * @desc: MTD library descriptor
- * @dev_num: MTD device number to fetch information about
+ * @mtd_num: MTD device number to fetch information about
  * @mtd: the MTD device information is returned here
  *
  * This function is identical to 'mtd_get_dev_info()' except that it accepts
  * MTD device number, not MTD character device.
  */
-int mtd_get_dev_info1(libmtd_t desc, int dev_num, struct mtd_dev_info *mtd);
+int mtd_get_dev_info1(libmtd_t desc, int mtd_num, struct mtd_dev_info *mtd);
 
 /**
  * mtd_erase - erase an eraseblock.
+ * @desc: MTD library descriptor
  * @mtd: MTD device description object
  * @fd: MTD device node file descriptor
  * @eb: eraseblock to erase
@@ -146,7 +147,19 @@ int mtd_get_dev_info1(libmtd_t desc, int dev_num, struct mtd_dev_info *mtd);
  * This function erases eraseblock @eb of MTD device described by @fd. Returns
  * %0 in case of success and %-1 in case of failure.
  */
-int mtd_erase(const struct mtd_dev_info *mtd, int fd, int eb);
+int mtd_erase(libmtd_t desc, const struct mtd_dev_info *mtd, int fd, int eb);
+
+/**
+ * mtd_torture - torture an eraseblock.
+ * @desc: MTD library descriptor
+ * @mtd: MTD device description object
+ * @fd: MTD device node file descriptor
+ * @eb: eraseblock to torture
+ *
+ * This function tortures eraseblock @eb. Returns %0 in case of success and %-1
+ * in case of failure.
+ */
+int mtd_torture(libmtd_t desc, const struct mtd_dev_info *mtd, int fd, int eb);
 
 /**
  * mtd_is_bad - check if eraseblock is bad.
@@ -160,13 +173,13 @@ int mtd_erase(const struct mtd_dev_info *mtd, int fd, int eb);
 int mtd_is_bad(const struct mtd_dev_info *mtd, int fd, int eb);
 
 /**
- * mtd_mark_bad - marks the block as bad.
+ * mtd_mark_bad - mark an eraseblock as bad.
  * @mtd: MTD device description object
  * @fd: MTD device node file descriptor
- * @eb: eraseblock to mark bad
+ * @eb: eraseblock to mark as bad
  *
- * This function marks the eraseblock @eb as bad. Returns %0 if success
- * %-1 if failure
+ * This function marks eraseblock @eb as bad. Returns %0 in case of success and
+ * %-1 in case of failure.
  */
 int mtd_mark_bad(const struct mtd_dev_info *mtd, int fd, int eb);
 
@@ -203,12 +216,61 @@ int mtd_write(const struct mtd_dev_info *mtd, int fd, int eb, int offs,
 	      void *buf, int len);
 
 /**
+ * mtd_read_oob - read out-of-band area.
+ * @desc: MTD library descriptor
+ * @mtd: MTD device description object
+ * @fd: MTD device node file descriptor
+ * @start: page-aligned start address
+ * @length: number of OOB bytes to read
+ * @data: read buffer
+ *
+ * This function reads @length OOB bytes starting from address @start on
+ * MTD device described by @fd. The address is specified as page byte offset
+ * from the beginning of the MTD device. This function returns %0 in case of
+ * success and %-1 in case of failure.
+ */
+int mtd_read_oob(libmtd_t desc, const struct mtd_dev_info *mtd, int fd,
+		 uint64_t start, uint64_t length, void *data);
+
+/**
+ * mtd_write_oob - write out-of-band area.
+ * @desc: MTD library descriptor
+ * @mtd: MTD device description object
+ * @fd: MTD device node file descriptor
+ * @start: page-aligned start address
+ * @length: number of OOB bytes to write
+ * @data: write buffer
+ *
+ * This function writes @length OOB bytes starting from address @start on
+ * MTD device described by @fd. The address is specified as page byte offset
+ * from the beginning of the MTD device. Returns %0 in case of success and %-1
+ * in case of failure.
+ */
+int mtd_write_oob(libmtd_t desc, const struct mtd_dev_info *mtd, int fd,
+		  uint64_t start, uint64_t length, void *data);
+
+/**
+ * mtd_write_img - write a file to MTD device.
+ * @mtd: MTD device description object
+ * @fd: MTD device node file descriptor
+ * @eb: eraseblock to write to
+ * @offs: offset withing the eraseblock to write to
+ * @img_name: the file to write
+ *
+ * This function writes an image @img_name the MTD device defined by @mtd. @eb
+ * and @offs are the starting eraseblock and offset on the MTD device. Returns
+ * %0 in case of success and %-1 in case of failure.
+ */
+int mtd_write_img(const struct mtd_dev_info *mtd, int fd, int eb, int offs,
+		  const char *img_name);
+
+/**
  * mtd_probe_node - test MTD node.
  * @desc: MTD library descriptor
  * @node: the node to test
  *
  * This function tests whether @node is an MTD device node and returns %1 if it
- * is, and %-1 if it is not (errno is ENODEV in this case) or if an error
+ * is, and %-1 if it is not (errno is %ENODEV in this case) or if an error
  * occurred.
  */
 int mtd_probe_node(libmtd_t desc, const char *node);

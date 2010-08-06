@@ -32,23 +32,14 @@
 #include <mtd/ubi-media.h>
 #include <mtd_swab.h>
 #include <libubigen.h>
-#include "crc32.h"
+#include <crc32.h>
 #include "common.h"
 
 #define PROGRAM_NAME "libubigen"
 
-/**
- * ubigen_info_init - initialize libubigen.
- * @ui: libubigen information
- * @peb_size: flash physical eraseblock size
- * @min_io_size: flash minimum input/output unit size
- * @subpage_size: flash sub-page, if present (has to be equivalent to
- *                @min_io_size if does not exist)
- * @vid_hdr_offs: offset of the VID header
- * @ubi_ver: UBI version
- */
 void ubigen_info_init(struct ubigen_info *ui, int peb_size, int min_io_size,
-		      int subpage_size, int vid_hdr_offs, int ubi_ver)
+		      int subpage_size, int vid_hdr_offs, int ubi_ver,
+		      uint32_t image_seq)
 {
 	if (!vid_hdr_offs) {
 		vid_hdr_offs = UBI_EC_HDR_SIZE + subpage_size - 1;
@@ -64,6 +55,7 @@ void ubigen_info_init(struct ubigen_info *ui, int peb_size, int min_io_size,
 	ui->data_offs *= min_io_size;
 	ui->leb_size = peb_size - ui->data_offs;
 	ui->ubi_ver = ubi_ver;
+	ui->image_seq = image_seq;
 
 	ui->max_volumes = ui->leb_size / UBI_VTBL_RECORD_SIZE;
 	if (ui->max_volumes > UBI_MAX_VOLUMES)
@@ -71,13 +63,6 @@ void ubigen_info_init(struct ubigen_info *ui, int peb_size, int min_io_size,
 	ui->vtbl_size = ui->max_volumes * UBI_VTBL_RECORD_SIZE;
 }
 
-/**
- * ubigen_create_empty_vtbl - creates empty volume table.
- *
- * This function creates an empty volume table and returns a pointer to it in
- * case of success and %NULL in case of failure. The returned object has to be
- * freed with 'free()' call.
- */
 struct ubi_vtbl_record *ubigen_create_empty_vtbl(const struct ubigen_info *ui)
 {
 	struct ubi_vtbl_record *vtbl;
@@ -98,15 +83,6 @@ struct ubi_vtbl_record *ubigen_create_empty_vtbl(const struct ubigen_info *ui)
 	return vtbl;
 }
 
-/**
- * ubigen_add_volume - add a volume to the volume table.
- * @ui: libubigen information
- * @vi: volume information
- * @vtbl: volume table to add to
- *
- * This function adds volume described by input parameters to the volume table
- * @vtbl.
- */
 int ubigen_add_volume(const struct ubigen_info *ui,
 		      const struct ubigen_vol_info *vi,
 		      struct ubi_vtbl_record *vtbl)
@@ -114,13 +90,19 @@ int ubigen_add_volume(const struct ubigen_info *ui,
 	struct ubi_vtbl_record *vtbl_rec = &vtbl[vi->id];
 	uint32_t tmp;
 
-	if (vi->id >= ui->max_volumes)
-		return errmsg("too high volume id %d, max. volumes is %d",
-			      vi->id, ui->max_volumes);
+	if (vi->id >= ui->max_volumes) {
+		errmsg("too high volume id %d, max. volumes is %d",
+		       vi->id, ui->max_volumes);
+		errno = EINVAL;
+		return -1;
+	}
 
-	if (vi->alignment >= ui->leb_size)
-		return errmsg("too large alignment %d, max is %d (LEB size)",
-			      vi->alignment, ui->leb_size);
+	if (vi->alignment >= ui->leb_size) {
+		errmsg("too large alignment %d, max is %d (LEB size)",
+		       vi->alignment, ui->leb_size);
+		errno = EINVAL;
+		return -1;
+	}
 
 	memset(vtbl_rec, 0, sizeof(struct ubi_vtbl_record));
 	tmp = (vi->bytes + ui->leb_size - 1) / ui->leb_size;
@@ -140,12 +122,6 @@ int ubigen_add_volume(const struct ubigen_info *ui,
 	return 0;
 }
 
-/**
- * ubigen_init_ec_hdr - initialize EC header.
- * @ui: libubigen information
- * @hdr: the EC header to initialize
- * @ec: erase counter value
- */
 void ubigen_init_ec_hdr(const struct ubigen_info *ui,
 		        struct ubi_ec_hdr *hdr, long long ec)
 {
@@ -157,26 +133,14 @@ void ubigen_init_ec_hdr(const struct ubigen_info *ui,
 	hdr->version = ui->ubi_ver;
 	hdr->ec = cpu_to_be64(ec);
 	hdr->vid_hdr_offset = cpu_to_be32(ui->vid_hdr_offs);
-
 	hdr->data_offset = cpu_to_be32(ui->data_offs);
+	hdr->image_seq = cpu_to_be32(ui->image_seq);
 
 	crc = crc32(UBI_CRC32_INIT, hdr, UBI_EC_HDR_SIZE_CRC);
 	hdr->hdr_crc = cpu_to_be32(crc);
 }
 
-/**
- * init_vid_hdr - initialize VID header.
- * @ui: libubigen information
- * @vi: volume information
- * @hdr: the VID header to initialize
- * @lnum: logical eraseblock number
- * @data: the contents of the LEB (static volumes only)
- * @data_size: amount of data in this LEB (static volumes only)
- *
- * Note, @used_ebs, @data and @data_size are ignored in case of dynamic
- * volumes.
- */
-static void init_vid_hdr(const struct ubigen_info *ui,
+void ubigen_init_vid_hdr(const struct ubigen_info *ui,
 			 const struct ubigen_vol_info *vi,
 			 struct ubi_vid_hdr *hdr, int lnum,
 			 const void *data, int data_size)
@@ -204,33 +168,36 @@ static void init_vid_hdr(const struct ubigen_info *ui,
 	hdr->hdr_crc = cpu_to_be32(crc);
 }
 
-/**
- * ubigen_write_volume - write UBI volume.
- * @ui: libubigen information
- * @vi: volume information
- * @ec: erase coutner value to put to EC headers
- * @bytes: volume size in bytes
- * @in: input file descriptor (has to be properly seeked)
- * @out: output file descriptor
- *
- * This function reads the contents of the volume from the input file @in and
- * writes the UBI volume to the output file @out. Returns zero on success and
- * %-1 on failure.
- */
 int ubigen_write_volume(const struct ubigen_info *ui,
 			const struct ubigen_vol_info *vi, long long ec,
 			long long bytes, int in, int out)
 {
 	int len = vi->usable_leb_size, rd, lnum = 0;
-	char inbuf[ui->leb_size], outbuf[ui->peb_size];
+	char *inbuf, *outbuf;
 
-	if (vi->id >= ui->max_volumes)
-		return errmsg("too high volume id %d, max. volumes is %d",
-			      vi->id, ui->max_volumes);
+	if (vi->id >= ui->max_volumes) {
+		errmsg("too high volume id %d, max. volumes is %d",
+		       vi->id, ui->max_volumes);
+		errno = EINVAL;
+		return -1;
+	}
 
-	if (vi->alignment >= ui->leb_size)
-		return errmsg("too large alignment %d, max is %d (LEB size)",
-			      vi->alignment, ui->leb_size);
+	if (vi->alignment >= ui->leb_size) {
+		errmsg("too large alignment %d, max is %d (LEB size)",
+		       vi->alignment, ui->leb_size);
+		errno = EINVAL;
+		return -1;
+	}
+
+	inbuf = malloc(ui->leb_size);
+	if (!inbuf)
+		return sys_errmsg("cannot allocate %d bytes of memory",
+				  ui->leb_size);
+	outbuf = malloc(ui->peb_size);
+	if (!outbuf) {
+		sys_errmsg("cannot allocate %d bytes of memory", ui->peb_size);
+		goto out_free;
+	}
 
 	memset(outbuf, 0xFF, ui->data_offs);
 	ubigen_init_ec_hdr(ui, (struct ubi_ec_hdr *)outbuf, ec);
@@ -246,41 +213,40 @@ int ubigen_write_volume(const struct ubigen_info *ui,
 		l = len;
 		do {
 			rd = read(in, inbuf + len - l, l);
-			if (rd != l)
-				return sys_errmsg("cannot read %d bytes from the input file", l);
+			if (rd != l) {
+				sys_errmsg("cannot read %d bytes from the input file", l);
+				goto out_free1;
+			}
 
 			l -= rd;
 		} while (l);
 
 		vid_hdr = (struct ubi_vid_hdr *)(&outbuf[ui->vid_hdr_offs]);
-		init_vid_hdr(ui, vi, vid_hdr, lnum, inbuf, len);
+		ubigen_init_vid_hdr(ui, vi, vid_hdr, lnum, inbuf, len);
 
 		memcpy(outbuf + ui->data_offs, inbuf, len);
 		memset(outbuf + ui->data_offs + len, 0xFF,
 		       ui->peb_size - ui->data_offs - len);
 
-		if (write(out, outbuf, ui->peb_size) != ui->peb_size)
-			return sys_errmsg("cannot write %d bytes to the output file", ui->peb_size);
+		if (write(out, outbuf, ui->peb_size) != ui->peb_size) {
+			sys_errmsg("cannot write %d bytes to the output file", ui->peb_size);
+			goto out_free1;
+		}
 
 		lnum += 1;
 	}
 
+	free(outbuf);
+	free(inbuf);
 	return 0;
+
+out_free1:
+	free(outbuf);
+out_free:
+	free(inbuf);
+	return -1;
 }
 
-/**
- * ubigen_write_layout_vol - write UBI layout volume
- * @ui: libubigen information
- * @peb1: physical eraseblock number to write the first volume table copy
- * @peb2: physical eraseblock number to write the second volume table copy
- * @ec1: erase counter value for @peb1
- * @ec2: erase counter value for @peb1
- * @vtbl: volume table
- * @fd: output file descriptor seeked to the proper position
- *
- * This function creates the UBI layout volume which contains 2 copies of the
- * volume table. Returns zero in case of success and %-1 in case of failure.
- */
 int ubigen_write_layout_vol(const struct ubigen_info *ui, int peb1, int peb2,
 			    long long ec1, long long ec2,
 			    struct ubi_vtbl_record *vtbl, int fd)
@@ -320,7 +286,7 @@ int ubigen_write_layout_vol(const struct ubigen_info *ui, int peb1, int peb2,
 	}
 
 	ubigen_init_ec_hdr(ui, (struct ubi_ec_hdr *)outbuf, ec1);
-	init_vid_hdr(ui, &vi, vid_hdr, 0, NULL, 0);
+	ubigen_init_vid_hdr(ui, &vi, vid_hdr, 0, NULL, 0);
 	ret = write(fd, outbuf, ui->peb_size);
 	if (ret != ui->peb_size) {
 		sys_errmsg("cannot write %d bytes", ui->peb_size);
@@ -333,7 +299,7 @@ int ubigen_write_layout_vol(const struct ubigen_info *ui, int peb1, int peb2,
 		goto out_free;
 	}
 	ubigen_init_ec_hdr(ui, (struct ubi_ec_hdr *)outbuf, ec2);
-	init_vid_hdr(ui, &vi, vid_hdr, 1, NULL, 0);
+	ubigen_init_vid_hdr(ui, &vi, vid_hdr, 1, NULL, 0);
 	ret = write(fd, outbuf, ui->peb_size);
 	if (ret != ui->peb_size) {
 		sys_errmsg("cannot write %d bytes", ui->peb_size);

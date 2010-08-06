@@ -216,14 +216,6 @@ static void set_random_data(unsigned seed, unsigned char *buf, int size)
 	srand(r);
 }
 
-#if 0
-static void print_write_info(struct write_info *w)
-{
-	printf("Offset: %lld  Size:%d  Seed:%u\n", w->offset, w->size, w->random_seed);
-	fflush(stdout);
-}
-#endif
-
 static void check_erase_block(struct erase_block_info *erase_block, int fd)
 {
 	struct write_info *w;
@@ -739,10 +731,8 @@ int main(int argc,char *argv[])
 		return 1;
 	}
 
-	initial_seed = getpid();
+	next_seed = initial_seed = seed_random_generator();
 	printf("Initial seed = %u\n", (unsigned) initial_seed);
-	next_seed = initial_seed;
-	srand(initial_seed);
 	load_ubi();
 
 	libubi = libubi_open();

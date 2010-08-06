@@ -110,7 +110,7 @@ int flash_to_file (int fd,u_int32_t offset,size_t len,const char *filename)
 		perror ("lseek()");
 		goto err0;
 	}
-	outfd = creat (filename,O_WRONLY);
+	outfd = creat (filename,0666);
 	if (outfd < 0)
 	{
 		perror ("creat()");
@@ -158,7 +158,7 @@ retry:
 	if (buf != NULL)
 		free (buf);
 	close (outfd);
-	printf ("Copied %d bytes from address 0x%.8x in flash to %s\n",len,offset,filename);
+	printf ("Copied %zu bytes from address 0x%.8x in flash to %s\n",len,offset,filename);
 	return (0);
 
 err2:
@@ -301,7 +301,7 @@ int showinfo (int fd)
 			{ "MTD_WRITEABLE", MTD_WRITEABLE },
 			{ "MTD_BIT_WRITEABLE", MTD_BIT_WRITEABLE },
 			{ "MTD_NO_ERASE", MTD_NO_ERASE },
-			{ "MTD_STUPID_LOCK", MTD_STUPID_LOCK },
+			{ "MTD_POWERUP_LOCK", MTD_POWERUP_LOCK },
 			{ NULL, -1 }
 		};
 		for (i = 0; flags[i].name != NULL; i++)
@@ -309,7 +309,7 @@ int showinfo (int fd)
 			{
 				if (first)
 				{
-					printf (flags[i].name);
+					printf ("%s", flags[i].name);
 					first = 0;
 				}
 				else printf (" | %s",flags[i].name);

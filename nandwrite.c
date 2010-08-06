@@ -45,13 +45,6 @@
 #define MAX_PAGE_SIZE	4096
 #define MAX_OOB_SIZE	128
 
-/*
- * Buffer array used for writing data
- */
-static unsigned char writebuf[MAX_PAGE_SIZE];
-static unsigned char oobbuf[MAX_OOB_SIZE];
-static unsigned char oobreadbuf[MAX_OOB_SIZE];
-
 // oob layouts to pass into the kernel as default
 static struct nand_oobinfo none_oobinfo = {
 	.useecc = MTD_NANDECC_OFF,
@@ -87,6 +80,7 @@ static void display_help (void)
 "  -m, --markbad           Mark blocks bad if write fails\n"
 "  -n, --noecc             Write without ecc\n"
 "  -o, --oob               Image contains oob data\n"
+"  -r, --raw               Image contains the raw oob data dumped by nanddump\n"
 "  -s addr, --start=addr   Set start address (default is 0)\n"
 "  -p, --pad               Pad to page size\n"
 "  -b, --blockalign=1|2|4  Set multiple of eraseblocks to align to\n"
@@ -117,6 +111,7 @@ static const char	*mtd_device, *img;
 static int		mtdoffset = 0;
 static bool		quiet = false;
 static bool		writeoob = false;
+static bool		rawoob = false;
 static bool		autoplace = false;
 static bool		markbad = false;
 static bool		forcejffs2 = false;
@@ -132,7 +127,7 @@ static void process_options (int argc, char * const argv[])
 
 	for (;;) {
 		int option_index = 0;
-		static const char *short_options = "ab:fjmnopqs:y";
+		static const char *short_options = "ab:fjmnopqrs:y";
 		static const struct option long_options[] = {
 			{"help", no_argument, 0, 0},
 			{"version", no_argument, 0, 0},
@@ -145,6 +140,7 @@ static void process_options (int argc, char * const argv[])
 			{"oob", no_argument, 0, 'o'},
 			{"pad", no_argument, 0, 'p'},
 			{"quiet", no_argument, 0, 'q'},
+			{"raw", no_argument, 0, 'r'},
 			{"start", required_argument, 0, 's'},
 			{"yaffs", no_argument, 0, 'y'},
 			{0, 0, 0, 0},
@@ -193,6 +189,10 @@ static void process_options (int argc, char * const argv[])
 				break;
 			case 'p':
 				pad = true;
+				break;
+			case 'r':
+				rawoob = true;
+				writeoob = true;
 				break;
 			case 's':
 				mtdoffset = strtol (optarg, NULL, 0);
@@ -257,10 +257,19 @@ int main(int argc, char * const argv[])
 	struct mtd_info_user meminfo;
 	struct mtd_oob_buf oob;
 	loff_t offs;
-	int ret, readlen;
+	int ret;
 	int oobinfochanged = 0;
 	struct nand_oobinfo old_oobinfo;
-	int readcnt = 0;
+	bool failed = true;
+	// contains all the data read from the file so far for the current eraseblock
+	unsigned char *filebuf = NULL;
+	size_t filebuf_max = 0;
+	size_t filebuf_len = 0;
+	// points to the current page inside filebuf
+	unsigned char *writebuf = NULL;
+	// points to the OOB for the current page in filebuf
+	unsigned char *oobreadbuf = NULL;
+	unsigned char oobbuf[MAX_OOB_SIZE];
 
 	process_options(argc, argv);
 
@@ -292,10 +301,19 @@ int main(int argc, char * const argv[])
 	if (!(meminfo.oobsize == 16 && meminfo.writesize == 512) &&
 			!(meminfo.oobsize == 8 && meminfo.writesize == 256) &&
 			!(meminfo.oobsize == 64 && meminfo.writesize == 2048) &&
+			!(meminfo.oobsize == 64 && meminfo.writesize == 4096) &&
 			!(meminfo.oobsize == 128 && meminfo.writesize == 4096)) {
 		fprintf(stderr, "Unknown flash (not normal NAND)\n");
 		close(fd);
 		exit (EXIT_FAILURE);
+	}
+
+	if (mtdoffset & (meminfo.writesize - 1)) {
+		fprintf(stderr, "The start address is not page-aligned !\n"
+				"The pagesize of this NAND Flash is 0x%x.\n",
+				meminfo.writesize);
+		close(fd);
+		exit(EXIT_FAILURE);
 	}
 
 	if (autoplace) {
@@ -390,12 +408,6 @@ int main(int argc, char * const argv[])
 		goto restoreoob;
 	}
 
-	/* For now, don't allow writing oob when reading from standard input. */
-	if (ifd == STDIN_FILENO && writeoob) {
-		fprintf(stderr, "Can't write oob when reading from standard input.\n");
-		goto closeall;
-	}
-
 	pagelen = meminfo.writesize + ((writeoob) ? meminfo.oobsize : 0);
 
 	/*
@@ -431,6 +443,16 @@ int main(int argc, char * const argv[])
 		goto closeall;
 	}
 
+	// Allocate a buffer big enough to contain all the data (OOB included) for one eraseblock
+	filebuf_max = pagelen * meminfo.erasesize / meminfo.writesize;
+	filebuf = (unsigned char*)malloc(filebuf_max);
+	if (!filebuf) {
+		fprintf(stderr, "Failed to allocate memory for file buffer (%d bytes)\n",
+				pagelen * meminfo.erasesize / meminfo.writesize);
+		goto closeall;
+	}
+	erase_buffer(filebuf, filebuf_max);
+
 	/*
 	 * Get data from input and write to the device while there is
 	 * still input to read and we are still within the device
@@ -438,7 +460,9 @@ int main(int argc, char * const argv[])
 	 * length is simply a quasi-boolean flag whose values are page
 	 * length or zero.
 	 */
-	while (imglen && (mtdoffset < meminfo.size)) {
+	while (((imglen > 0) || (writebuf < (filebuf + filebuf_len)))
+		&& (mtdoffset < meminfo.size))
+	{
 		// new eraseblock , check for bad block(s)
 		// Stay in the loop to be sure if the mtdoffset changes because
 		// of a bad block, that the next block that will be written to
@@ -448,6 +472,15 @@ int main(int argc, char * const argv[])
 		while (blockstart != (mtdoffset & (~meminfo.erasesize + 1))) {
 			blockstart = mtdoffset & (~meminfo.erasesize + 1);
 			offs = blockstart;
+
+			// if writebuf == filebuf, we are rewinding so we must not
+			// reset the buffer but just replay it
+			if (writebuf != filebuf) {
+				erase_buffer(filebuf, filebuf_len);
+				filebuf_len = 0;
+				writebuf = filebuf;
+			}
+
 			baderaseblock = false;
 			if (!quiet)
 				fprintf (stdout, "Writing data to block %d at offset 0x%x\n",
@@ -475,37 +508,19 @@ int main(int argc, char * const argv[])
 
 		}
 
-		readlen = meminfo.writesize;
+		// Read more data from the input if there isn't enough in the buffer
+		if ((writebuf + meminfo.writesize) > (filebuf + filebuf_len)) {
+			int readlen = meminfo.writesize;
 
-		if (ifd != STDIN_FILENO) {
-			int tinycnt = 0;
+			int alreadyread = (filebuf + filebuf_len) - writebuf;
+			int tinycnt = alreadyread;
 
-			if (pad && (imglen < readlen))
-			{
-				readlen = imglen;
-				erase_buffer(writebuf + readlen, meminfo.writesize - readlen);
-			}
-
-			/* Read Page Data from input file */
-			while(tinycnt < readlen) {
+			while (tinycnt < readlen) {
 				cnt = read(ifd, writebuf + tinycnt, readlen - tinycnt);
 				if (cnt == 0) { // EOF
 					break;
 				} else if (cnt < 0) {
-					perror ("File I/O error on input file");
-					goto closeall;
-				}
-				tinycnt += cnt;
-			}
-		} else {
-			int tinycnt = 0;
-
-			while(tinycnt < readlen) {
-				cnt = read(ifd, writebuf + tinycnt, readlen - tinycnt);
-				if (cnt == 0) { // EOF
-					break;
-				} else if (cnt < 0) {
-					perror ("File I/O error on stdin");
+					perror ("File I/O error on input");
 					goto closeall;
 				}
 				tinycnt += cnt;
@@ -513,37 +528,78 @@ int main(int argc, char * const argv[])
 
 			/* No padding needed - we are done */
 			if (tinycnt == 0) {
-				imglen = 0;
+				// For standard input, set the imglen to 0 to signal
+				// the end of the "file". For non standard input, leave
+				// it as-is to detect an early EOF
+				if (ifd == STDIN_FILENO) {
+					imglen = 0;
+				}
 				break;
 			}
 
-			/* No more bytes - we are done after writing the remaining bytes */
-			if (cnt == 0) {
-				imglen = 0;
+			/* Padding */
+			if (tinycnt < readlen) {
+				if (!pad) {
+					fprintf(stderr, "Unexpected EOF. Expecting at least "
+							"%d more bytes. Use the padding option.\n",
+							readlen - tinycnt);
+					goto closeall;
+				}
+				erase_buffer(writebuf + tinycnt, readlen - tinycnt);
 			}
 
-			/* Padding */
-			if (pad && (tinycnt < readlen)) {
-				erase_buffer(writebuf + tinycnt, meminfo.writesize - tinycnt);
+			filebuf_len += readlen - alreadyread;
+			if (ifd != STDIN_FILENO) {
+				imglen -= tinycnt - alreadyread;
+			}
+			else if (cnt == 0) {
+				/* No more bytes - we are done after writing the remaining bytes */
+				imglen = 0;
 			}
 		}
 
 		if (writeoob) {
-			int tinycnt = 0;
+			oobreadbuf = writebuf + meminfo.writesize;
 
-			while(tinycnt < readlen) {
-				cnt = read(ifd, oobreadbuf + tinycnt, meminfo.oobsize - tinycnt);
-				if (cnt == 0) { // EOF
-					break;
-				} else if (cnt < 0) {
-					perror ("File I/O error on input file");
+			// Read more data for the OOB from the input if there isn't enough in the buffer
+			if ((oobreadbuf + meminfo.oobsize) > (filebuf + filebuf_len)) {
+				int readlen = meminfo.oobsize;
+
+				int alreadyread = (filebuf + filebuf_len) - oobreadbuf;
+				int tinycnt = alreadyread;
+
+				while (tinycnt < readlen) {
+					cnt = read(ifd, oobreadbuf + tinycnt, readlen - tinycnt);
+					if (cnt == 0) { // EOF
+						break;
+					} else if (cnt < 0) {
+						perror ("File I/O error on input");
+						goto closeall;
+					}
+					tinycnt += cnt;
+				}
+
+				if (tinycnt < readlen) {
+					fprintf(stderr, "Unexpected EOF. Expecting at least "
+							"%d more bytes for OOB\n", readlen - tinycnt);
 					goto closeall;
 				}
-				tinycnt += cnt;
+
+				filebuf_len += readlen - alreadyread;
+				if (ifd != STDIN_FILENO) {
+					imglen -= tinycnt - alreadyread;
+				}
+				else if (cnt == 0) {
+					/* No more bytes - we are done after writing the remaining bytes */
+					imglen = 0;
+				}
 			}
 
-			if (!noecc) {
+			if (noecc) {
+				oob.ptr = oobreadbuf;
+			} else {
 				int i, start, len;
+				int tags_pos = 0;
 				/*
 				 *  We use autoplacement and have the oobinfo with the autoplacement
 				 * information from the kernel available
@@ -556,9 +612,13 @@ int main(int argc, char * const argv[])
 						/* Set the reserved bytes to 0xff */
 						start = old_oobinfo.oobfree[i][0];
 						len = old_oobinfo.oobfree[i][1];
-						memcpy(oobbuf + start,
-								oobreadbuf + start,
-								len);
+						if (rawoob)
+							memcpy(oobbuf + start,
+									oobreadbuf + start, len);
+						else
+							memcpy(oobbuf + start,
+									oobreadbuf + tags_pos, len);
+						tags_pos += len;
 					}
 				} else {
 					/* Set at least the ecc byte positions to 0xff */
@@ -575,33 +635,30 @@ int main(int argc, char * const argv[])
 				perror ("ioctl(MEMWRITEOOB)");
 				goto closeall;
 			}
-			imglen -= meminfo.oobsize;
 		}
 
 		/* Write out the Page data */
 		if (pwrite(fd, writebuf, meminfo.writesize, mtdoffset) != meminfo.writesize) {
-			int rewind_blocks;
-			off_t rewind_bytes;
 			erase_info_t erase;
 
-			perror ("pwrite");
-			/* Must rewind to blockstart if we can */
-			rewind_blocks = (mtdoffset - blockstart) / meminfo.writesize; /* Not including the one we just attempted */
-			rewind_bytes = (rewind_blocks * meminfo.writesize) + readlen;
-			if (writeoob)
-				rewind_bytes += (rewind_blocks + 1) * meminfo.oobsize;
-			if (lseek(ifd, -rewind_bytes, SEEK_CUR) == -1) {
-				perror("lseek");
-				fprintf(stderr, "Failed to seek backwards to recover from write error\n");
+			if (errno != EIO) {
+				perror("pwrite");
 				goto closeall;
 			}
+
+			/* Must rewind to blockstart if we can */
+			writebuf = filebuf;
+
 			erase.start = blockstart;
 			erase.length = meminfo.erasesize;
 			fprintf(stderr, "Erasing failed write from %08lx-%08lx\n",
 				(long)erase.start, (long)erase.start+erase.length-1);
 			if (ioctl(fd, MEMERASE, &erase) != 0) {
+				int errno_tmp = errno;
 				perror("MEMERASE");
-				goto closeall;
+				if (errno_tmp != EIO) {
+					goto closeall;
+				}
 			}
 
 			if (markbad) {
@@ -609,21 +666,24 @@ int main(int argc, char * const argv[])
 				fprintf(stderr, "Marking block at %08lx bad\n", (long)bad_addr);
 				if (ioctl(fd, MEMSETBADBLOCK, &bad_addr)) {
 					perror("MEMSETBADBLOCK");
-					/* But continue anyway */
+					goto closeall;
 				}
 			}
 			mtdoffset = blockstart + meminfo.erasesize;
-			imglen += rewind_blocks * meminfo.writesize;
 
 			continue;
 		}
-		if (ifd != STDIN_FILENO) {
-			imglen -= readlen;
-		}
 		mtdoffset += meminfo.writesize;
+		writebuf += pagelen;
 	}
 
+	failed = false;
+
 closeall:
+	if (filebuf) {
+		free(filebuf);
+	}
+
 	close(ifd);
 
 restoreoob:
@@ -637,7 +697,10 @@ restoreoob:
 
 	close(fd);
 
-	if ((ifd != STDIN_FILENO) && (imglen > 0)) {
+	if (failed
+		|| ((ifd != STDIN_FILENO) && (imglen > 0))
+		|| (writebuf < (filebuf + filebuf_len)))
+	{
 		perror ("Data was only partially written due to error\n");
 		exit (EXIT_FAILURE);
 	}

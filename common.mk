@@ -12,7 +12,10 @@ WFLAGS := -Wall \
 	$(call cc-option,-Wwrite-strings) \
 	$(call cc-option,-Wno-sign-compare)
 CFLAGS += $(WFLAGS)
-CPPFLAGS += -D_FILE_OFFSET_BITS=64
+
+ifneq ($(WITHOUT_LARGEFILE), 1)
+  CPPFLAGS += -D_FILE_OFFSET_BITS=64
+endif
 
 DESTDIR ?= /usr/local
 PREFIX=/usr
@@ -44,7 +47,7 @@ clean:: $(SUBDIRS_CLEAN)
 
 install:: $(TARGETS) $(SUBDIRS_INSTALL)
 
-%: %.o
+%: %.o $(LDDEPS) $(LDDEPS_$(notdir $@))
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_$(notdir $@)) -g -o $@ $^ $(LDLIBS) $(LDLIBS_$(notdir $@))
 
 $(BUILDDIR)/%.a:

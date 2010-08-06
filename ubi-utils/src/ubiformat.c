@@ -29,7 +29,6 @@
  */
 #define MAX_CONSECUTIVE_BAD_BLOCKS 4
 
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -42,10 +41,11 @@
 #include <libscan.h>
 #include <libubigen.h>
 #include <mtd_swab.h>
-#include "crc32.h"
+#include <crc32.h>
 #include "common.h"
+#include "ubiutils-common.h"
 
-#define PROGRAM_VERSION "1.3"
+#define PROGRAM_VERSION "1.5"
 #define PROGRAM_NAME    "ubiformat"
 
 /* The variables below are set by command line arguments */
@@ -59,6 +59,7 @@ struct args {
 	int subpage_size;
 	int vid_hdr_offs;
 	int ubi_ver;
+	uint32_t image_seq;
 	off_t image_sz;
 	long long ec;
 	const char *image;
@@ -68,7 +69,7 @@ struct args {
 
 static struct args args =
 {
-	.ubi_ver = 1,
+	.ubi_ver   = 1,
 };
 
 static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
@@ -89,23 +90,23 @@ static const char *optionsstr =
 "-S, --image-size=<bytes>     bytes in input, if not reading from file\n"
 "-e, --erase-counter=<value>  use <value> as the erase counter value for all\n"
 "                             eraseblocks\n"
+"-x, --ubi-ver=<num>          UBI version number to put to EC headers\n"
+"                             (default is 1)\n"
+"-Q, --image-seq=<num>        32-bit UBI image sequence number to use\n"
+"                             (by default a random number is picked)\n"
 "-y, --yes                    assume the answer is \"yes\" for all question\n"
 "                             this program would otherwise ask\n"
 "-q, --quiet                  suppress progress percentage information\n"
 "-v, --verbose                be verbose\n"
-"-x, --ubi-ver=<num>          UBI version number to put to EC headers\n"
-"                             (default is 1)\n"
 "-h, -?, --help               print help message\n"
 "-V, --version                print program version\n";
 
 static const char *usage =
-"Usage: " PROGRAM_NAME " <MTD device node file name> [-h] [-V] [-y] [-q] [-v]\n"
-"\t\t\t[-x <num>] [-E <value>] [-s <bytes>] [-O <offs>] [-n]\n"
-"\t\t\t[--help] [--version] [--yes] [--verbose] [--quiet]\n"
-"\t\t\t[--ec=<value>] [--vid-hdr-offset=<offs>]\n"
-"\t\t\t[--ubi-ver=<num>] [--no-volume-table]\n"
-"\t\t\t[--flash-image=<file>] [--image-size=<bytes>]\n\n"
-
+"Usage: " PROGRAM_NAME " <MTD device node file name> [-s <bytes>] [-O <offs>] [-n]\n"
+"\t\t\t[-f <file>] [-S <bytes>] [-e <value>] [-x <num>] [-y] [-q] [-v] [-h] [-v]\n"
+"\t\t\t[--sub-page-size=<bytes>] [--vid-hdr-offset=<offs>] [--no-volume-table]\n"
+"\t\t\t[--flash-image=<file>] [--image-size=<bytes>] [--erase-counter=<value>]\n"
+"\t\t\t[--ubi-ver=<num>] [--yes] [--quiet] [--verbose] [--help] [--version]\n\n"
 "Example 1: " PROGRAM_NAME " /dev/mtd0 -y - format MTD device number 0 and do\n"
 "           not ask questions.\n"
 "Example 2: " PROGRAM_NAME " /dev/mtd0 -q -e 0 - format MTD device number 0,\n"
@@ -129,9 +130,13 @@ static const struct option long_options[] = {
 
 static int parse_opt(int argc, char * const argv[])
 {
+	ubiutils_srand();
+	args.image_seq = rand();
+
 	while (1) {
 		int key;
 		char *endp;
+		unsigned long int image_seq;
 
 		key = getopt_long(argc, argv, "nh?Vyqve:x:s:O:f:S:", long_options, NULL);
 		if (key == -1)
@@ -154,7 +159,7 @@ static int parse_opt(int argc, char * const argv[])
 
 		case 'e':
 			args.ec = strtoull(optarg, &endp, 0);
-			if (args.ec <= 0 || *endp != '\0' || endp == optarg)
+			if (args.ec < 0 || *endp != '\0' || endp == optarg)
 				return errmsg("bad erase counter value: \"%s\"", optarg);
 			if (args.ec >= EC_MAX)
 				return errmsg("too high erase %llu, counter, max is %u", args.ec, EC_MAX);
@@ -188,6 +193,14 @@ static int parse_opt(int argc, char * const argv[])
 			if (args.ubi_ver < 0 || *endp != '\0' || endp == optarg)
 				return errmsg("bad UBI version: \"%s\"", optarg);
 			break;
+
+		case 'Q':
+			image_seq = strtoul(optarg, &endp, 0);
+			if (*endp != '\0'  || endp == optarg || image_seq > 0xFFFFFFFF)
+				return errmsg("bad UBI image sequence number: \"%s\"", optarg);
+			args.image_seq = image_seq;
+			break;
+
 
 		case 'v':
 			args.verbose = 1;
@@ -223,6 +236,7 @@ static int parse_opt(int argc, char * const argv[])
 
 	if (args.image && args.novtbl)
 		return errmsg("-n cannot be used together with -f");
+
 
 	args.node = argv[optind];
 	return 0;
@@ -269,7 +283,7 @@ static void print_bad_eraseblocks(const struct mtd_dev_info *mtd,
 	if (si->bad_cnt == 0)
 		return;
 
-	normsg_cont("bad eraseblocks: ");
+	normsg_cont("%d bad eraseblocks found, numbers: ", si->bad_cnt);
 	for (eb = 0; eb < mtd->eb_cnt; eb++) {
 		if (si->ec[eb] != EB_BAD)
 			continue;
@@ -282,7 +296,8 @@ static void print_bad_eraseblocks(const struct mtd_dev_info *mtd,
 	printf("\n");
 }
 
-static int change_ec(struct ubi_ec_hdr *hdr, long long ec)
+static int change_ech(struct ubi_ec_hdr *hdr, uint32_t image_seq,
+		      long long ec)
 {
 	uint32_t crc;
 
@@ -296,6 +311,7 @@ static int change_ec(struct ubi_ec_hdr *hdr, long long ec)
 		return errmsg("bad CRC %#08x, should be %#08x\n",
 			      crc, be32_to_cpu(hdr->hdr_crc));
 
+	hdr->image_seq = cpu_to_be32(image_seq);
 	hdr->ec = cpu_to_be64(ec);
 	crc = crc32(UBI_CRC32_INIT, hdr, UBI_EC_HDR_SIZE_CRC);
 	hdr->hdr_crc = cpu_to_be32(crc);
@@ -425,7 +441,8 @@ static int mark_bad(const struct mtd_dev_info *mtd, struct ubi_scan_info *si, in
 	return consecutive_bad_check(eb);
 }
 
-static int flash_image(const struct mtd_dev_info *mtd, struct ubi_scan_info *si)
+static int flash_image(libmtd_t libmtd, const struct mtd_dev_info *mtd,
+		       const struct ubigen_info *ui, struct ubi_scan_info *si)
 {
 	int fd, img_ebs, eb, written_ebs = 0, divisor;
 	off_t st_size;
@@ -471,7 +488,7 @@ static int flash_image(const struct mtd_dev_info *mtd, struct ubi_scan_info *si)
 			fflush(stdout);
 		}
 
-		err = mtd_erase(mtd, args.node_fd, eb);
+		err = mtd_erase(libmtd, mtd, args.node_fd, eb);
 		if (err) {
 			if (!args.quiet)
 				printf("\n");
@@ -483,7 +500,6 @@ static int flash_image(const struct mtd_dev_info *mtd, struct ubi_scan_info *si)
 			if (mark_bad(mtd, si, eb))
 				goto out_close;
 
-			divisor += 1;
 			continue;
 		}
 
@@ -494,20 +510,19 @@ static int flash_image(const struct mtd_dev_info *mtd, struct ubi_scan_info *si)
 			goto out_close;
 		}
 
-
-		if (si->ec[eb] <= EC_MAX)
-			ec = si->ec[eb] + 1;
-		else if (!args.override_ec)
-			ec = si->mean_ec;
-		else
+		if (args.override_ec)
 			ec = args.ec;
+		else if (si->ec[eb] <= EC_MAX)
+			ec = si->ec[eb] + 1;
+		else
+			ec = si->mean_ec;
 
 		if (args.verbose) {
 			printf(", change EC to %lld", ec);
 			fflush(stdout);
 		}
 
-		err = change_ec((struct ubi_ec_hdr *)buf, ec);
+		err = change_ech((struct ubi_ec_hdr *)buf, ui->image_seq, ec);
 		if (err) {
 			errmsg("bad EC header at eraseblock %d of \"%s\"",
 			       written_ebs, args.image);
@@ -523,19 +538,16 @@ static int flash_image(const struct mtd_dev_info *mtd, struct ubi_scan_info *si)
 
 		err = mtd_write(mtd, args.node_fd, eb, 0, buf, new_len);
 		if (err) {
-			if (!args.quiet)
-				printf("\n");
 			sys_errmsg("cannot write eraseblock %d", eb);
 
 			if (errno != EIO)
 				goto out_close;
 
-			if (mark_bad(mtd, si, eb)) {
-				normsg("operation incomplete");
-				goto out_close;
+			err = mtd_torture(libmtd, mtd, args.node_fd, eb);
+			if (err) {
+				if (mark_bad(mtd, si, eb))
+					goto out_close;
 			}
-
-			divisor += 1;
 			continue;
 		}
 		if (++written_ebs >= img_ebs)
@@ -552,8 +564,9 @@ out_close:
 	return -1;
 }
 
-static int format(const struct mtd_dev_info *mtd, const struct ubigen_info *ui,
-		  struct ubi_scan_info *si, int start_eb, int novtbl)
+static int format(libmtd_t libmtd, const struct mtd_dev_info *mtd,
+		  const struct ubigen_info *ui, struct ubi_scan_info *si,
+		  int start_eb, int novtbl)
 {
 	int eb, err, write_size;
 	struct ubi_ec_hdr *hdr;
@@ -581,12 +594,12 @@ static int format(const struct mtd_dev_info *mtd, const struct ubigen_info *ui,
 		if (si->ec[eb] == EB_BAD)
 			continue;
 
-		if (si->ec[eb] <= EC_MAX)
-			ec = si->ec[eb] + 1;
-		else if (!args.override_ec)
-			ec = si->mean_ec;
-		else
+		if (args.override_ec)
 			ec = args.ec;
+		else if (si->ec[eb] <= EC_MAX)
+			ec = si->ec[eb] + 1;
+		else
+			ec = si->mean_ec;
 		ubigen_init_ec_hdr(ui, hdr, ec);
 
 		if (args.verbose) {
@@ -594,7 +607,7 @@ static int format(const struct mtd_dev_info *mtd, const struct ubigen_info *ui,
 			fflush(stdout);
 		}
 
-		err = mtd_erase(mtd, args.node_fd, eb);
+		err = mtd_erase(libmtd, mtd, args.node_fd, eb);
 		if (err) {
 			if (!args.quiet)
 				printf("\n");
@@ -640,9 +653,10 @@ static int format(const struct mtd_dev_info *mtd, const struct ubigen_info *ui,
 				goto out_free;
 			}
 
-			if (mark_bad(mtd, si, eb)) {
-				normsg("operation incomplete");
-				goto out_free;
+			err = mtd_torture(libmtd, mtd, args.node_fd, eb);
+			if (err) {
+				if (mark_bad(mtd, si, eb))
+					goto out_free;
 			}
 			continue;
 
@@ -712,6 +726,12 @@ int main(int argc, char * const argv[])
 		goto out_close_mtd;
 	}
 
+	if (!is_power_of_2(mtd.min_io_size)) {
+		errmsg("min. I/O size is %d, but should be power of 2",
+		       mtd.min_io_size);
+		goto out_close;
+	}
+
 	if (!mtd_info.sysfs_supported) {
 		/*
 		 * Linux kernels older than 2.6.30 did not support sysfs
@@ -766,7 +786,7 @@ int main(int argc, char * const argv[])
 	}
 
 	if (!mtd.writable) {
-		errmsg("mtd%d (%s) is a read-only device", mtd.dev_num, args.node);
+		errmsg("mtd%d (%s) is a read-only device", mtd.mtd_num, args.node);
 		goto out_close;
 	}
 
@@ -775,17 +795,17 @@ int main(int argc, char * const argv[])
 	if (libubi) {
 		int ubi_dev_num;
 
-		err = mtd_num2ubi_dev(libubi, mtd.dev_num, &ubi_dev_num);
+		err = mtd_num2ubi_dev(libubi, mtd.mtd_num, &ubi_dev_num);
 		libubi_close(libubi);
 		if (!err) {
 			errmsg("please, first detach mtd%d (%s) from ubi%d",
-			       mtd.dev_num, args.node, ubi_dev_num);
+			       mtd.mtd_num, args.node, ubi_dev_num);
 			goto out_close;
 		}
 	}
 
 	if (!args.quiet) {
-		normsg_cont("mtd%d (%s), size ", mtd.dev_num, mtd.type_str);
+		normsg_cont("mtd%d (%s), size ", mtd.mtd_num, mtd.type_str);
 		ubiutils_print_bytes(mtd.size, 1);
 		printf(", %d eraseblocks of ", mtd.eb_cnt);
 		ubiutils_print_bytes(mtd.eb_size, 1);
@@ -800,7 +820,7 @@ int main(int argc, char * const argv[])
 		verbose = 1;
 	err = ubi_scan(&mtd, args.node_fd, &si, verbose);
 	if (err) {
-		errmsg("failed to scan mtd%d (%s)", mtd.dev_num, args.node);
+		errmsg("failed to scan mtd%d (%s)", mtd.mtd_num, args.node);
 		goto out_close;
 	}
 
@@ -811,7 +831,7 @@ int main(int argc, char * const argv[])
 
 	if (si->good_cnt < 2 && (!args.novtbl || args.image)) {
 		errmsg("too few non-bad eraseblocks (%d) on mtd%d",
-		       si->good_cnt, mtd.dev_num);
+		       si->good_cnt, mtd.mtd_num);
 		goto out_free;
 	}
 
@@ -877,7 +897,7 @@ int main(int argc, char * const argv[])
 		normsg("use erase counter %lld for all eraseblocks", args.ec);
 
 	ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, mtd.subpage_size,
-			 args.vid_hdr_offs, args.ubi_ver);
+			 args.vid_hdr_offs, args.ubi_ver, args.image_seq);
 
 	if (si->vid_hdr_offs != -1 && ui.vid_hdr_offs != si->vid_hdr_offs) {
 		/*
@@ -897,20 +917,21 @@ int main(int argc, char * const argv[])
 				printf("yes\n");
 		} else
 			ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, 0,
-					 si->vid_hdr_offs, args.ubi_ver);
+					 si->vid_hdr_offs, args.ubi_ver,
+					 args.image_seq);
 		normsg("use offsets %d and %d",  ui.vid_hdr_offs, ui.data_offs);
 	}
 
 	if (args.image) {
-		err = flash_image(&mtd, si);
+		err = flash_image(libmtd, &mtd, &ui, si);
 		if (err < 0)
 			goto out_free;
 
-		err = format(&mtd, &ui, si, err, 1);
+		err = format(libmtd, &mtd, &ui, si, err, 1);
 		if (err)
 			goto out_free;
 	} else {
-		err = format(&mtd, &ui, si, 0, args.novtbl);
+		err = format(libmtd, &mtd, &ui, si, 0, args.novtbl);
 		if (err)
 			goto out_free;
 	}

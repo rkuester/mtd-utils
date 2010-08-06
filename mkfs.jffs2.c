@@ -69,10 +69,10 @@
 #include <sys/acl.h>
 #endif
 #include <byteswap.h>
-#define crc32 __complete_crap
+#define crc32 __zlib_crc32
 #include <zlib.h>
 #undef crc32
-#include "crc32.h"
+#include <crc32.h>
 #include "rbtree.h"
 
 /* Do not use the weird XPG version of basename */
@@ -309,8 +309,8 @@ static struct filesystem_entry *find_filesystem_entry(
 	return (NULL);
 }
 
-static struct filesystem_entry *add_host_filesystem_entry(
-		char *name, char *path, unsigned long uid, unsigned long gid,
+static struct filesystem_entry *add_host_filesystem_entry(const char *name,
+		const char *path, unsigned long uid, unsigned long gid,
 		unsigned long mode, dev_t rdev, struct filesystem_entry *parent)
 {
 	int status;
@@ -401,7 +401,8 @@ static struct filesystem_entry *add_host_filesystem_entry(
 }
 
 static struct filesystem_entry *recursive_add_host_directory(
-		struct filesystem_entry *parent, char *targetpath, char *hostpath)
+		struct filesystem_entry *parent, const char *targetpath,
+		const char *hostpath)
 {
 	int i, n;
 	struct stat sb;
@@ -1089,7 +1090,7 @@ static uint32_t highest_xseqno = 0;
 
 static struct {
 	int xprefix;
-	char *string;
+	const char *string;
 	int length;
 } xprefix_tbl[] = {
 	{ JFFS2_XPREFIX_USER, XATTR_USER_PREFIX, XATTR_USER_PREFIX_LEN },
@@ -1231,7 +1232,8 @@ static void write_xattr_entry(struct filesystem_entry *e)
 	struct jffs2_raw_xref ref;
 	struct xattr_entry *xe;
 	char xlist[XATTR_BUFFER_SIZE], xvalue[XATTR_BUFFER_SIZE];
-	char *xname, *prefix_str;
+	char *xname;
+	const char *prefix_str;
 	int i, xprefix, prefix_len;
 	int list_sz, offset, name_len, value_len;
 
@@ -1468,6 +1470,7 @@ static struct option long_options[] = {
 	{"devtable", 1, NULL, 'D'},
 	{"compression-mode", 1, NULL, 'm'},
 	{"disable-compressor", 1, NULL, 'x'},
+	{"enable-compressor", 1, NULL, 'X'},
 	{"test-compression", 0, NULL, 't'},
 	{"compressor-priority", 1, NULL, 'y'},
 	{"incremental", 1, NULL, 'i'},
@@ -1479,7 +1482,7 @@ static struct option long_options[] = {
 	{NULL, 0, NULL, 0}
 };
 
-static char *helptext =
+static const char helptext[] =
 "Usage: mkfs.jffs2 [OPTIONS]\n"
 "Make a JFFS2 file system image from an existing directory tree\n\n"
 "Options:\n"
@@ -1518,7 +1521,7 @@ static char *helptext =
 "  -V, --version           Display version information\n"
 "  -i, --incremental=FILE  Parse FILE and generate appendage output for it\n\n";
 
-static char *revtext = "1.60";
+static const char revtext[] = "1.60";
 
 int load_next_block() {
 

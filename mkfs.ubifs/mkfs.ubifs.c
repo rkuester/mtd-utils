@@ -21,6 +21,7 @@
  */
 
 #include "mkfs.ubifs.h"
+#include <crc32.h>
 
 #define PROGRAM_VERSION "1.3"
 
@@ -752,7 +753,7 @@ static void prepare_node(void *node, int len)
 	ch->group_type = UBIFS_NO_NODE_GROUP;
 	ch->sqnum = cpu_to_le64(++c->max_sqnum);
 	ch->padding[0] = ch->padding[1] = 0;
-	crc = ubifs_crc32(UBIFS_CRC32_INIT, node + 8, len - 8);
+	crc = crc32(UBIFS_CRC32_INIT, node + 8, len - 8);
 	ch->crc = cpu_to_le32(crc);
 }
 
@@ -822,7 +823,7 @@ static int do_pad(void *buf, int len)
 		pad_len -= UBIFS_PAD_NODE_SZ;
 		pad_node->pad_len = cpu_to_le32(pad_len);
 
-		crc = ubifs_crc32(UBIFS_CRC32_INIT, buf + 8,
+		crc = crc32(UBIFS_CRC32_INIT, buf + 8,
 				  UBIFS_PAD_NODE_SZ - 8);
 		ch->crc = cpu_to_le32(crc);
 
@@ -1168,8 +1169,8 @@ static int add_dent_node(ino_t dir_inum, const char *name, ino_t inum,
 	char *kname;
 	int len;
 
-	dbg_msg(3, "%s ino %lu type %u dir ino %lu", name, inum,
-		(unsigned)type, dir_inum);
+	dbg_msg(3, "%s ino %lu type %u dir ino %lu", name, (unsigned long)inum,
+		(unsigned int)type, (unsigned long)dir_inum);
 	memset(dent, 0, UBIFS_DENT_NODE_SZ);
 
 	dname.name = (void *)name;
