@@ -29,6 +29,9 @@
  */
 #define MAX_CONSECUTIVE_BAD_BLOCKS 4
 
+#define PROGRAM_VERSION "1.5"
+#define PROGRAM_NAME    "ubiformat"
+
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -44,9 +47,6 @@
 #include <crc32.h>
 #include "common.h"
 #include "ubiutils-common.h"
-
-#define PROGRAM_VERSION "1.5"
-#define PROGRAM_NAME    "ubiformat"
 
 /* The variables below are set by command line arguments */
 struct args {
@@ -72,10 +72,10 @@ static struct args args =
 	.ubi_ver   = 1,
 };
 
-static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
 		" - a tool to format MTD devices and flash UBI images";
 
-static const char *optionsstr =
+static const char optionsstr[] =
 "-s, --sub-page-size=<bytes>  minimum input/output unit used for UBI\n"
 "                             headers, e.g. sub-page size in case of NAND\n"
 "                             flash (equivalent to the minimum input/output\n"
@@ -101,7 +101,7 @@ static const char *optionsstr =
 "-h, -?, --help               print help message\n"
 "-V, --version                print program version\n";
 
-static const char *usage =
+static const char usage[] =
 "Usage: " PROGRAM_NAME " <MTD device node file name> [-s <bytes>] [-O <offs>] [-n]\n"
 "\t\t\t[-f <file>] [-S <bytes>] [-e <value>] [-x <num>] [-y] [-q] [-v] [-h] [-v]\n"
 "\t\t\t[--sub-page-size=<bytes>] [--vid-hdr-offset=<offs>] [--no-volume-table]\n"
@@ -306,14 +306,14 @@ static int change_ech(struct ubi_ec_hdr *hdr, uint32_t image_seq,
 		return errmsg("bad UBI magic %#08x, should be %#08x",
 			      be32_to_cpu(hdr->magic), UBI_EC_HDR_MAGIC);
 
-	crc = crc32(UBI_CRC32_INIT, hdr, UBI_EC_HDR_SIZE_CRC);
+	crc = mtd_crc32(UBI_CRC32_INIT, hdr, UBI_EC_HDR_SIZE_CRC);
 	if (be32_to_cpu(hdr->hdr_crc) != crc)
 		return errmsg("bad CRC %#08x, should be %#08x\n",
 			      crc, be32_to_cpu(hdr->hdr_crc));
 
 	hdr->image_seq = cpu_to_be32(image_seq);
 	hdr->ec = cpu_to_be64(ec);
-	crc = crc32(UBI_CRC32_INIT, hdr, UBI_EC_HDR_SIZE_CRC);
+	crc = mtd_crc32(UBI_CRC32_INIT, hdr, UBI_EC_HDR_SIZE_CRC);
 	hdr->hdr_crc = cpu_to_be32(crc);
 
 	return 0;

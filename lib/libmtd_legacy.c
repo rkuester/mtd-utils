@@ -75,12 +75,7 @@ static int proc_parse_start(struct proc_parse_info *pi)
 	if (fd == -1)
 		return -1;
 
-	pi->buf = malloc(PROC_MTD_MAX_LEN);
-	if (!pi->buf) {
-		sys_errmsg("cannot allocate %d bytes of memory",
-			   PROC_MTD_MAX_LEN);
-		goto out_close;
-	}
+	pi->buf = xmalloc(PROC_MTD_MAX_LEN);
 
 	ret = read(fd, pi->buf, PROC_MTD_MAX_LEN);
 	if (ret == -1) {
@@ -103,7 +98,6 @@ static int proc_parse_start(struct proc_parse_info *pi)
 
 out_free:
 	free(pi->buf);
-out_close:
 	close(fd);
 	return -1;
 }
@@ -125,18 +119,18 @@ static int proc_parse_next(struct proc_parse_info *pi)
 
 	p = memchr(pi->next, '\"', pi->data_size - pos);
 	if (!p)
-		return errmsg("opening \" not fount");
+		return errmsg("opening \" not found");
 	p += 1;
 	pos = p - pi->buf;
 	if (pos >= pi->data_size)
-		return errmsg("opening \" not fount");
+		return errmsg("opening \" not found");
 
 	p1 = memchr(p, '\"', pi->data_size - pos);
 	if (!p1)
-		return errmsg("closing \" not fount");
+		return errmsg("closing \" not found");
 	pos = p1 - pi->buf;
 	if (pos >= pi->data_size)
-		return errmsg("closing \" not fount");
+		return errmsg("closing \" not found");
 
 	len = p1 - p;
 	if (len > MTD_NAME_MAX)
@@ -146,7 +140,7 @@ static int proc_parse_next(struct proc_parse_info *pi)
 	pi->name[len] = '\0';
 
 	if (p1[1] != '\n')
-		return errmsg("opening \"\n\" not fount");
+		return errmsg("opening \"\n\" not found");
 	pi->next = p1 + 2;
 	return 1;
 }
@@ -267,6 +261,7 @@ int legacy_get_dev_info(const char *node, struct mtd_dev_info *mtd)
 	mtd->size = ui.size;
 	mtd->eb_size = ui.erasesize;
 	mtd->min_io_size = ui.writesize;
+	mtd->oob_size = ui.oobsize;
 
 	if (mtd->min_io_size <= 0) {
 		errmsg("mtd%d (%s) has insane min. I/O unit size %d",

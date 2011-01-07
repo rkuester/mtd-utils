@@ -23,6 +23,9 @@
  *          Frank Haverkamp <haver@vnet.ibm.com>
  */
 
+#define PROGRAM_VERSION "1.1"
+#define PROGRAM_NAME    "ubirsvol"
+
 #include <stdio.h>
 #include <stdint.h>
 #include <getopt.h>
@@ -32,9 +35,6 @@
 #include <libubi.h>
 #include "common.h"
 #include "ubiutils-common.h"
-
-#define PROGRAM_VERSION "1.1"
-#define PROGRAM_NAME    "ubirsvol"
 
 /* The variables below are set by command line arguments */
 struct args {
@@ -51,10 +51,10 @@ static struct args args = {
 	.lebs = -1,
 };
 
-static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
 				 " - a tool to resize UBI volumes.";
 
-static const char *optionsstr =
+static const char optionsstr[] =
 "-n, --vol_id=<volume id>   volume ID to resize\n"
 "-N, --name=<volume name>   volume name to resize\n"
 "-s, --size=<bytes>         volume size volume size in bytes, kilobytes (KiB)\n"
@@ -65,7 +65,7 @@ static const char *optionsstr =
 "-V, --version              print program version";
 
 
-static const char *usage =
+static const char usage[] =
 "Usage: " PROGRAM_NAME " <UBI device node file name> [-n <volume id>] [--vol_id=<volume id>]\n\n"
 "         [-N <volume name>] [--name=<volume name>] [-s <bytes>] [-S <LEBs>] [-h] [--help]\n\n"
 "Example: " PROGRAM_NAME " /dev/ubi0 -n 1 -s 1MiB resize UBI volume 1 to 1 MiB on\n"

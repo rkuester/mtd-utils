@@ -34,6 +34,8 @@
 
   ======================================================================*/
 
+#define PROGRAM_NAME "ftl_check"
+
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,7 +81,7 @@ static void print_size(u_int s)
 
 /*====================================================================*/
 
-static void check_partition(int fd, int verbose)
+static void check_partition(int fd)
 {
 	mtd_info_t mtd;
 	erase_unit_header_t hdr, hdr2;
@@ -178,34 +180,29 @@ static void check_partition(int fd, int verbose)
 } /* format_partition */
 
 /* Show usage information */
-void showusage(char *pname)
+void showusage(void)
 {
-	fprintf(stderr, "usage: %s [-v] device\n", pname);
-	fprintf(stderr, "-v verbose messages\n");
+	fprintf(stderr, "usage: %s device\n", PROGRAM_NAME);
 }
 
 /*====================================================================*/
 
 int main(int argc, char *argv[])
 {
-	int verbose;
 	int optch, errflg, fd;
 	struct stat buf;
 
 	errflg = 0;
-	verbose = 0;
-	while ((optch = getopt(argc, argv, "vh")) != -1) {
+	while ((optch = getopt(argc, argv, "h")) != -1) {
 		switch (optch) {
 			case 'h':
 				errflg = 1; break;
-			case 'v':
-				verbose = 1; break;
 			default:
 				errflg = -1; break;
 		}
 	}
 	if (errflg || (optind != argc-1)) {
-		showusage(argv[0]);
+		showusage();
 		exit(errflg > 0 ? 0 : EXIT_FAILURE);
 	}
 
@@ -224,7 +221,7 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	check_partition(fd, verbose);
+	check_partition(fd);
 	close(fd);
 
 	exit(EXIT_SUCCESS);

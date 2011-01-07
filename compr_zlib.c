@@ -32,14 +32,17 @@
  * under either the RHEPL or the GPL.
  */
 
+#define PROGRAM_NAME "compr_zlib"
+
 #include <stdint.h>
+#define crc32 __zlib_crc32
 #include <zlib.h>
+#undef crc32
 #include <stdio.h>
 #include <asm/types.h>
 #include <linux/jffs2.h>
+#include "common.h"
 #include "compr.h"
-
-#define min(x,y) ((x)<(y)?(x):(y))
 
 /* Plan: call deflate() with avail_in == *sourcelen,
    avail_out = *dstlen - 12 and flush == Z_FINISH.
@@ -50,8 +53,8 @@ Q: Is 12 bytes sufficient?
  */
 #define STREAM_END_SPACE 12
 
-int jffs2_zlib_compress(unsigned char *data_in, unsigned char *cpage_out,
-		uint32_t *sourcelen, uint32_t *dstlen, void *model)
+static int jffs2_zlib_compress(unsigned char *data_in, unsigned char *cpage_out,
+		uint32_t *sourcelen, uint32_t *dstlen)
 {
 	z_stream strm;
 	int ret;
@@ -98,8 +101,8 @@ int jffs2_zlib_compress(unsigned char *data_in, unsigned char *cpage_out,
 	return 0;
 }
 
-int jffs2_zlib_decompress(unsigned char *data_in, unsigned char *cpage_out,
-		uint32_t srclen, uint32_t destlen, void *model)
+static int jffs2_zlib_decompress(unsigned char *data_in, unsigned char *cpage_out,
+		uint32_t srclen, uint32_t destlen)
 {
 	z_stream strm;
 	int ret;

@@ -20,65 +20,99 @@
 #define __MTD_UTILS_COMMON_H__
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
 #include <errno.h>
 
-/*
- * Note, the user is supposed to define its PROGRAM_NAME before including this
- * header.
- */
+#ifndef PROGRAM_NAME
+# error "You must define PROGRAM_NAME before including this header"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define MIN(a ,b) ((a) < (b) ? (a) : (b))
+#ifndef MIN	/* some C lib headers define this for us */
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
+#define min(a, b) MIN(a, b) /* glue for linux kernel source */
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 /* Verbose messages */
-#define verbose(verbose, fmt, ...) do {                            \
+#define bareverbose(verbose, fmt, ...) do {                        \
 	if (verbose)                                               \
-		printf(PROGRAM_NAME ": " fmt "\n", ##__VA_ARGS__); \
+		printf(fmt, ##__VA_ARGS__);                        \
 } while(0)
+#define verbose(verbose, fmt, ...) \
+	bareverbose(verbose, "%s: " fmt "\n", PROGRAM_NAME, ##__VA_ARGS__)
 
 /* Normal messages */
-#define normsg(fmt, ...) do {                              \
-	printf(PROGRAM_NAME ": " fmt "\n", ##__VA_ARGS__); \
+#define normsg_cont(fmt, ...) do {                                 \
+	printf("%s: " fmt, PROGRAM_NAME, ##__VA_ARGS__);           \
 } while(0)
-#define normsg_cont(fmt, ...) do {                    \
-	printf(PROGRAM_NAME ": " fmt, ##__VA_ARGS__); \
-} while(0)
-#define normsg_cont(fmt, ...) do {                         \
-	printf(PROGRAM_NAME ": " fmt, ##__VA_ARGS__);      \
+#define normsg(fmt, ...) do {                                      \
+	normsg_cont(fmt "\n", ##__VA_ARGS__);                      \
 } while(0)
 
 /* Error messages */
 #define errmsg(fmt, ...)  ({                                                \
-	fprintf(stderr, PROGRAM_NAME ": error!: " fmt "\n", ##__VA_ARGS__); \
+	fprintf(stderr, "%s: error!: " fmt "\n", PROGRAM_NAME, ##__VA_ARGS__); \
 	-1;                                                                 \
 })
+#define errmsg_die(fmt, ...) do {                                           \
+	exit(errmsg(fmt, ##__VA_ARGS__));                                   \
+} while(0)
 
 /* System error messages */
 #define sys_errmsg(fmt, ...)  ({                                            \
 	int _err = errno;                                                   \
-	size_t _i;                                                           \
-	fprintf(stderr, PROGRAM_NAME ": error!: " fmt "\n", ##__VA_ARGS__); \
-	for (_i = 0; _i < sizeof(PROGRAM_NAME) + 1; _i++)                   \
-		fprintf(stderr, " ");                                       \
-	fprintf(stderr, "error %d (%s)\n", _err, strerror(_err));           \
+	errmsg(fmt, ##__VA_ARGS__);                                         \
+	fprintf(stderr, "%*serror %d (%s)\n", (int)sizeof(PROGRAM_NAME) + 1,\
+		"", _err, strerror(_err));                                  \
 	-1;                                                                 \
 })
+#define sys_errmsg_die(fmt, ...) do {                                       \
+	exit(sys_errmsg(fmt, ##__VA_ARGS__));                               \
+} while(0)
 
 /* Warnings */
 #define warnmsg(fmt, ...) do {                                                \
-	fprintf(stderr, PROGRAM_NAME ": warning!: " fmt "\n", ##__VA_ARGS__); \
+	fprintf(stderr, "%s: warning!: " fmt "\n", PROGRAM_NAME, ##__VA_ARGS__); \
 } while(0)
 
 static inline int is_power_of_2(unsigned long long n)
 {
 	        return (n != 0 && ((n & (n - 1)) == 0));
 }
+
+/**
+ * simple_strtoX - convert a hex/dec/oct string into a number
+ * @snum: buffer to convert
+ * @error: set to 1 when buffer isn't fully consumed
+ */
+#define simple_strtoX(func, type) \
+static inline type simple_##func(const char *snum, int *error) \
+{ \
+	char *endptr; \
+	type ret = func(snum, &endptr, 0); \
+ \
+	if (error && (!*snum || *endptr)) { \
+		errmsg("%s: unable to parse the number '%s'", #func, snum); \
+		*error = 1; \
+	} \
+ \
+	return ret; \
+}
+simple_strtoX(strtol, long int)
+simple_strtoX(strtoll, long int)
+simple_strtoX(strtoul, unsigned long int)
+simple_strtoX(strtoull, unsigned long int)
+
+#include "xalloc.h"
 
 #ifdef __cplusplus
 }

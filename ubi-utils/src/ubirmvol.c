@@ -23,6 +23,9 @@
  *          Frank Haverkamp <haver@vnet.ibm.com>
  */
 
+#define PROGRAM_VERSION "1.1"
+#define PROGRAM_NAME    "ubirmvol"
+
 #include <stdio.h>
 #include <stdint.h>
 #include <getopt.h>
@@ -31,9 +34,6 @@
 
 #include <libubi.h>
 #include "common.h"
-
-#define PROGRAM_VERSION "1.1"
-#define PROGRAM_NAME    "ubirmvol"
 
 /* The variables below are set by command line arguments */
 struct args {
@@ -46,16 +46,16 @@ static struct args args = {
 	.vol_id = -1,
 };
 
-static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
 				 " - a tool to remove UBI volumes.";
 
-static const char *optionsstr =
+static const char optionsstr[] =
 "-n, --vol_id=<volume id>   volume ID to remove\n"
 "-N, --name=<volume name>   volume name to remove\n"
 "-h, -?, --help             print help message\n"
 "-V, --version              print program version";
 
-static const char *usage =
+static const char usage[] =
 "Usage: " PROGRAM_NAME " <UBI device node file name> [-n <volume id>] [--vol_id=<volume id>]\n\n"
 "         [-N <volume name>] [--name=<volume name>] [-h] [--help]\n\n"
 "Example: " PROGRAM_NAME "/dev/ubi0 -n 1 - remove UBI volume 1 from UBI device corresponding\n"

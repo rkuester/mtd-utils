@@ -3,6 +3,7 @@ AR := $(CROSS)ar
 RANLIB := $(CROSS)ranlib
 
 # Stolen from Linux build system
+comma = ,
 try-run = $(shell set -e; ($(1)) >/dev/null 2>&1 && echo "$(2)" || echo "$(3)")
 cc-option = $(call try-run, $(CC) $(1) -c -xc /dev/null -o /dev/null,$(1),$(2))
 
@@ -12,12 +13,14 @@ WFLAGS := -Wall \
 	$(call cc-option,-Wwrite-strings) \
 	$(call cc-option,-Wno-sign-compare)
 CFLAGS += $(WFLAGS)
+SECTION_CFLAGS := $(call cc-option,-ffunction-sections -fdata-sections -Wl$(comma)--gc-sections)
+CFLAGS += $(SECTION_CFLAGS)
 
 ifneq ($(WITHOUT_LARGEFILE), 1)
   CPPFLAGS += -D_FILE_OFFSET_BITS=64
 endif
 
-DESTDIR ?= /usr/local
+DESTDIR?=
 PREFIX=/usr
 EXEC_PREFIX=$(PREFIX)
 SBINDIR=$(EXEC_PREFIX)/sbin
@@ -26,10 +29,10 @@ INCLUDEDIR=$(PREFIX)/include
 
 ifndef BUILDDIR
 ifeq ($(origin CROSS),undefined)
-  BUILDDIR := $(PWD)
+  BUILDDIR := $(CURDIR)
 else
 # Remove the trailing slash to make the directory name
-  BUILDDIR := $(PWD)/$(CROSS:-=)
+  BUILDDIR := $(CURDIR)/$(CROSS:-=)
 endif
 endif
 override BUILDDIR := $(patsubst %/,%,$(BUILDDIR))

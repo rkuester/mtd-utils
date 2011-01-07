@@ -1,10 +1,11 @@
 
+#define PROGRAM_NAME "recv_image"
 #define _XOPEN_SOURCE 500
+#define _BSD_SOURCE	/* struct ip_mreq */
 
 #include <errno.h>
 #include <error.h>
 #include <stdio.h>
-#define __USE_GNU
 #include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +21,7 @@
 #include "mtd/mtd-user.h"
 #include "mcast_image.h"
 
-#define min(x,y) (  (x)>(y)?(y):(x) )
+#include "common.h"
 
 #define WBUF_SIZE 4096
 struct eraseblock {
@@ -63,7 +64,7 @@ int main(int argc, char **argv)
 
 	if (argc != 4) {
 		fprintf(stderr, "usage: %s <host> <port> <mtddev>\n",
-			(strrchr(argv[0], '/')?:argv[0]-1)+1);
+			PROGRAM_NAME);
 		exit(1);
 	}
 	/* Open the device */
@@ -166,7 +167,7 @@ int main(int argc, char **argv)
 			break;
 		}
 		if (len < sizeof(thispkt)) {
-			fprintf(stderr, "Wrong length %zd bytes (expected %lu)\n",
+			fprintf(stderr, "Wrong length %zd bytes (expected %zu)\n",
 				len, sizeof(thispkt));
 			continue;
 		}
@@ -244,10 +245,10 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-		if (crc32(-1, thispkt.data, PKT_SIZE) != ntohl(thispkt.hdr.thiscrc)) {
+		if (mtd_crc32(-1, thispkt.data, PKT_SIZE) != ntohl(thispkt.hdr.thiscrc)) {
 			printf("\nDiscard %08x pkt %d with bad CRC (%08x not %08x)\n",
 			       block_nr * meminfo.erasesize, ntohs(thispkt.hdr.pkt_nr),
-			       crc32(-1, thispkt.data, PKT_SIZE),
+			       mtd_crc32(-1, thispkt.data, PKT_SIZE),
 			       ntohl(thispkt.hdr.thiscrc));
 			badcrcs++;
 			continue;
@@ -393,10 +394,10 @@ int main(int argc, char **argv)
 
 		/* Paranoia */
 		gettimeofday(&start, NULL);
-		if (crc32(-1, decode_buf, meminfo.erasesize) != eraseblocks[block_nr].crc) {
+		if (mtd_crc32(-1, decode_buf, meminfo.erasesize) != eraseblocks[block_nr].crc) {
 			printf("\nCRC mismatch for block #%d: want %08x got %08x\n",
 			       block_nr, eraseblocks[block_nr].crc, 
-			       crc32(-1, decode_buf, meminfo.erasesize));
+			       mtd_crc32(-1, decode_buf, meminfo.erasesize));
 			exit(1);
 		}
 		gettimeofday(&now, NULL);

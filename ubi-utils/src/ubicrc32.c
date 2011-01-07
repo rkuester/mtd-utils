@@ -22,6 +22,9 @@
  * Author: Oliver Lohmann
  */
 
+#define PROGRAM_VERSION "1.0"
+#define PROGRAM_NAME    "ubicrc32"
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,17 +37,14 @@
 
 #define BUFSIZE 4096
 
-#define PROGRAM_VERSION "1.0"
-#define PROGRAM_NAME    "ubicrc32"
-
-static const char *doc = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
 			 " - a tool to calculate CRC32 with UBI start value (0xFFFFFFFF)";
 
-static const char *optionsstr =
+static const char optionsstr[] =
 "-h, --help                    print help message\n"
 "-V, --version                 print program version";
 
-static const char *usage =
+static const char usage[] =
 "Usage: " PROGRAM_NAME " <file to calculate CRC32 for> [-h] [--help]";
 
 static const struct option long_options[] = {
@@ -112,7 +112,7 @@ int main(int argc, char * const argv[])
 			err = -1;
 			goto out_close;
 		}
-		crc = crc32(crc, buf, read);
+		crc = mtd_crc32(crc, buf, read);
 	}
 
 	printf("0x%08x\n", crc);

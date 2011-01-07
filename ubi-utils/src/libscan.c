@@ -20,6 +20,8 @@
  * UBI scanning library.
  */
 
+#define PROGRAM_NAME "libscan"
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdint.h>
@@ -34,8 +36,6 @@
 #include <libscan.h>
 #include <crc32.h>
 #include "common.h"
-
-#define PROGRAM_NAME "libscan"
 
 static int all_ff(const void *buf, int len)
 {
@@ -116,7 +116,7 @@ int ubi_scan(struct mtd_dev_info *mtd, int fd, struct ubi_scan_info **info,
 			continue;
 		}
 
-		crc = crc32(UBI_CRC32_INIT, &ech, UBI_EC_HDR_SIZE_CRC);
+		crc = mtd_crc32(UBI_CRC32_INIT, &ech, UBI_EC_HDR_SIZE_CRC);
 		if (be32_to_cpu(ech.hdr_crc) != crc) {
 			si->corrupted_cnt += 1;
 			si->ec[eb] = EB_CORRUPTED;
