@@ -1,3 +1,11 @@
+mtd-utils (20110107-1) unstable; urgency=medium
+
+  * New upstream version
+  * Ubi creation works again: Closes: #570493, #592485
+  * gcc 4.5 builds work, Closes: #565082
+
+ -- Riku Voipio <riku.voipio@iki.fi>  Fri, 07 Jan 2011 11:50:29 +0200
+
 mtd-utils (20100706-1) unstable; urgency=low
 
   * New upstream version
