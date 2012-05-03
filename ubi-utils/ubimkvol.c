@@ -23,7 +23,6 @@
  *          Frank Haverkamp <haver@vnet.ibm.com>
  */
 
-#define PROGRAM_VERSION "1.1"
 #define PROGRAM_NAME    "ubimkvol"
 
 #include <stdio.h>
@@ -56,7 +55,7 @@ static struct args args = {
 	.vol_id = UBI_VOL_NUM_AUTO,
 };
 
-static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " VERSION
 			 " - a tool to create UBI volumes.";
 
 static const char optionsstr[] =
@@ -121,8 +120,7 @@ static int param_sanity_check(void)
 static int parse_opt(int argc, char * const argv[])
 {
 	while (1) {
-		int key;
-		char *endp;
+		int key, error = 0;
 
 		key = getopt_long(argc, argv, "a:n:N:s:S:t:h?Vm", long_options, NULL);
 		if (key == -1)
@@ -145,20 +143,20 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'S':
-			args.lebs = strtoull(optarg, &endp, 0);
-			if (endp == optarg || args.lebs <= 0 || *endp != '\0')
+			args.lebs = simple_strtoull(optarg, &error);
+			if (error || args.lebs <= 0)
 				return errmsg("bad LEB count: \"%s\"", optarg);
 			break;
 
 		case 'a':
-			args.alignment = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.alignment <= 0)
+			args.alignment = simple_strtoul(optarg, &error);
+			if (error || args.alignment <= 0)
 				return errmsg("bad volume alignment: \"%s\"", optarg);
 			break;
 
 		case 'n':
-			args.vol_id = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.vol_id < 0)
+			args.vol_id = simple_strtoul(optarg, &error);
+			if (error || args.vol_id < 0)
 				return errmsg("bad volume ID: " "\"%s\"", optarg);
 			break;
 
@@ -168,13 +166,13 @@ static int parse_opt(int argc, char * const argv[])
 
 		case 'h':
 		case '?':
-			fprintf(stderr, "%s\n\n", doc);
-			fprintf(stderr, "%s\n\n", usage);
-			fprintf(stderr, "%s\n", optionsstr);
+			printf("%s\n\n", doc);
+			printf("%s\n\n", usage);
+			printf("%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
 
 		case 'V':
-			fprintf(stderr, "%s\n", PROGRAM_VERSION);
+			common_print_version();
 			exit(EXIT_SUCCESS);
 
 		case 'm':

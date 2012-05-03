@@ -21,7 +21,6 @@
  * Author: Artem Bityutskiy
  */
 
-#define PROGRAM_VERSION "1.0"
 #define PROGRAM_NAME    "mtdinfo"
 
 #include <stdint.h>
@@ -29,6 +28,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <mtd/mtd-user.h>
 
 #include <libubigen.h>
@@ -38,46 +38,48 @@
 
 /* The variables below are set by command line arguments */
 struct args {
-	int mtdn;
 	unsigned int all:1;
 	unsigned int ubinfo:1;
+	unsigned int map:1;
 	const char *node;
 };
 
 static struct args args = {
-	.mtdn = -1,
 	.ubinfo = 0,
 	.all = 0,
 	.node = NULL,
 };
 
-static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
-			 " - a tool to print MTD information.";
-
-static const char optionsstr[] =
-"-m, --mtdn=<MTD device number>  MTD device number to get information about\n"
-"-u, --ubi-info                  print what would UBI layout be if it was put\n"
-"                                on this MTD device\n"
-"-a, --all                       print information about all MTD devices\n"
-"-h, --help                      print help message\n"
-"-V, --version                   print program version";
-
-static const char usage[] =
-"Usage 1: " PROGRAM_NAME " [-m <MTD device number>] [-u] [-h] [-V] [--mtdn <MTD device number>]\n"
-"\t\t[--ubi-info] [--help] [--version]\n"
-"Usage 2: " PROGRAM_NAME " <MTD device node file name> [-u] [-h] [-V] [--ubi-info] [--help]\n"
-"\t\t[--version]\n"
-"Example 1: " PROGRAM_NAME " - (no arguments) print general MTD information\n"
-"Example 2: " PROGRAM_NAME " -m 1 - print information about MTD device number 1\n"
-"Example 3: " PROGRAM_NAME " /dev/mtd0 - print information MTD device /dev/mtd0\n"
-"Example 4: " PROGRAM_NAME " /dev/mtd0 -u - print information MTD device /dev/mtd0\n"
-"\t\t\t\tand include UBI layout information\n"
-"Example 5: " PROGRAM_NAME " -a - print information about all MTD devices\n"
-"\t\t\tand include UBI layout information\n";
+static void display_help(void)
+{
+	printf(
+		"%1$s version %2$s - a tool to print MTD information.\n"
+		"\n"
+		"Usage: %1$s <MTD node file path> [--map | -M] [--ubi-info | -u]\n"
+		"       %1$s --all [--ubi-info | -u]\n"
+		"       %1$s [--help | --version]\n"
+		"\n"
+		"Options:\n"
+		"-u, --ubi-info                  print what would UBI layout be if it was put\n"
+		"                                on this MTD device\n"
+		"-M, --map                       print eraseblock map\n"
+		"-a, --all                       print information about all MTD devices\n"
+		"                                Note: `--all' may give less info per device\n"
+		"                                than, e.g., `mtdinfo /dev/mtdX'\n"
+		"-h, --help                      print help message\n"
+		"-V, --version                   print program version\n"
+		"\n"
+		"Examples:\n"
+		"  %1$s /dev/mtd0             print information MTD device /dev/mtd0\n"
+		"  %1$s /dev/mtd0 -u          print information MTD device /dev/mtd0\n"
+		"  %4$*3$s                    and include UBI layout information\n"
+		"  %1$s -a                    print information about all MTD devices\n",
+		PROGRAM_NAME, VERSION, (int)strlen(PROGRAM_NAME) + 3, "");
+}
 
 static const struct option long_options[] = {
-	{ .name = "mtdn",      .has_arg = 1, .flag = NULL, .val = 'm' },
 	{ .name = "ubi-info",  .has_arg = 0, .flag = NULL, .val = 'u' },
+	{ .name = "map",       .has_arg = 0, .flag = NULL, .val = 'M' },
 	{ .name = "all",       .has_arg = 0, .flag = NULL, .val = 'a' },
 	{ .name = "help",      .has_arg = 0, .flag = NULL, .val = 'h' },
 	{ .name = "version",   .has_arg = 0, .flag = NULL, .val = 'V' },
@@ -88,9 +90,8 @@ static int parse_opt(int argc, char * const argv[])
 {
 	while (1) {
 		int key;
-		char *endp;
 
-		key = getopt_long(argc, argv, "am:uhV", long_options, NULL);
+		key = getopt_long(argc, argv, "auMhV", long_options, NULL);
 		if (key == -1)
 			break;
 
@@ -103,21 +104,16 @@ static int parse_opt(int argc, char * const argv[])
 			args.ubinfo = 1;
 			break;
 
-		case 'm':
-			args.mtdn = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.mtdn < 0)
-				return errmsg("bad MTD device number: \"%s\"", optarg);
-
+		case 'M':
+			args.map = 1;
 			break;
 
 		case 'h':
-			fprintf(stderr, "%s\n\n", doc);
-			fprintf(stderr, "%s\n\n", usage);
-			fprintf(stderr, "%s\n", optionsstr);
+			display_help();
 			exit(EXIT_SUCCESS);
 
 		case 'V':
-			fprintf(stderr, "%s\n", PROGRAM_VERSION);
+			common_print_version();
 			exit(EXIT_SUCCESS);
 
 		case ':':
@@ -134,10 +130,11 @@ static int parse_opt(int argc, char * const argv[])
 	else if (optind < argc)
 		return errmsg("more then one MTD device specified (use -h for help)");
 
-	if (args.all && (args.node || args.mtdn != -1)) {
-		args.mtdn = -1;
+	if (args.all && args.node)
 		args.node = NULL;
-	}
+
+	if (args.map && !args.node)
+		return errmsg("-M requires MTD device node name");
 
 	return 0;
 }
@@ -156,15 +153,143 @@ static int translate_dev(libmtd_t libmtd, const char *node)
 				  "device \"%s\"", node);
 	}
 
-	args.mtdn = mtd.mtd_num;
-	return 0;
+	return mtd.mtd_num;
+}
+
+static void print_ubi_info(const struct mtd_info *mtd_info,
+			   const struct mtd_dev_info *mtd)
+{
+	struct ubigen_info ui;
+
+	if (!mtd_info->sysfs_supported) {
+		errmsg("cannot provide UBI info, becasue sub-page size is "
+		       "not known");
+		return;
+	}
+
+	ubigen_info_init(&ui, mtd->eb_size, mtd->min_io_size, mtd->subpage_size,
+			 0, 1, 0);
+	printf("Default UBI VID header offset:  %d\n", ui.vid_hdr_offs);
+	printf("Default UBI data offset:        %d\n", ui.data_offs);
+	printf("Default UBI LEB size:           ");
+	ubiutils_print_bytes(ui.leb_size, 0);
+	printf("\n");
+	printf("Maximum UBI volumes count:      %d\n", ui.max_volumes);
+}
+
+static void print_region_map(const struct mtd_dev_info *mtd, int fd,
+			     const region_info_t *reginfo)
+{
+	unsigned long start;
+	int i, width;
+	int ret_locked, errno_locked, ret_bad, errno_bad;
+
+	printf("Eraseblock map:\n");
+
+	/* Figure out the number of spaces to pad w/out libm */
+	for (i = 1, width = 0; i < reginfo->numblocks; i *= 10, ++width)
+		continue;
+
+	/* If we don't have a fd to query, just show the bare map */
+	if (fd == -1) {
+		ret_locked = ret_bad = -1;
+		errno_locked = errno_bad = ENODEV;
+	} else
+		ret_locked = ret_bad = errno_locked = errno_bad = 0;
+
+	for (i = 0; i < reginfo->numblocks; ++i) {
+		start = reginfo->offset + i * reginfo->erasesize;
+		printf(" %*i: %08lx ", width, i, start);
+
+		if (ret_locked != -1) {
+			ret_locked = mtd_is_locked(mtd, fd, i);
+			if (ret_locked == 1)
+				printf("RO ");
+			else
+				errno_locked = errno;
+		}
+		if (ret_locked != 1)
+			printf("   ");
+
+		if (ret_bad != -1) {
+			ret_bad = mtd_is_bad(mtd, fd, i);
+			if (ret_bad == 1)
+				printf("BAD ");
+			else
+				errno_bad = errno;
+		}
+		if (ret_bad != 1)
+			printf("    ");
+
+		if (((i + 1) % 4) == 0)
+			printf("\n");
+	}
+	if (i % 4)
+		printf("\n");
+
+	if (ret_locked == -1 && errno_locked != EOPNOTSUPP) {
+		errno = errno_locked;
+		sys_errmsg("could not read locked block info");
+	}
+
+	if (mtd->bb_allowed && ret_bad == -1 && errno_bad != EOPNOTSUPP) {
+		errno = errno_bad;
+		sys_errmsg("could not read bad block info");
+	}
+}
+
+static void print_region_info(const struct mtd_dev_info *mtd)
+{
+	region_info_t reginfo;
+	int r, fd;
+
+	/*
+	 * If we don't have any region info, just return
+	 *
+	 * FIXME: We can't get region_info (via ioctl) without having the MTD
+	 *        node path. This is a problem for `mtdinfo -a', for example,
+	 *        since it doesn't provide any filepath information.
+	 */
+	if (!args.node || (!args.map && mtd->region_cnt == 0))
+		return;
+
+	/* First open the device so we can query it */
+	fd = open(args.node, O_RDONLY | O_CLOEXEC);
+	if (fd == -1) {
+		sys_errmsg("couldn't open MTD dev: %s", args.node);
+		if (mtd->region_cnt)
+			return;
+	}
+
+	/* Walk all the regions and show the map for them */
+	if (mtd->region_cnt) {
+		for (r = 0; r < mtd->region_cnt; ++r) {
+			printf("Eraseblock region %i: ", r);
+			if (mtd_regioninfo(fd, r, &reginfo) == 0) {
+				printf(" offset: %#x size: %#x numblocks: %#x\n",
+					reginfo.offset, reginfo.erasesize,
+					reginfo.numblocks);
+				if (args.map)
+					print_region_map(mtd, fd, &reginfo);
+			} else
+				printf(" info is unavailable\n");
+		}
+	} else {
+		reginfo.offset = 0;
+		reginfo.erasesize = mtd->eb_size;
+		reginfo.numblocks = mtd->eb_cnt;
+		reginfo.regionindex = 0;
+		print_region_map(mtd, fd, &reginfo);
+	}
+
+	if (fd != -1)
+		close(fd);
 }
 
 static int print_dev_info(libmtd_t libmtd, const struct mtd_info *mtd_info, int mtdn)
 {
 	int err;
 	struct mtd_dev_info mtd;
-	struct ubigen_info ui;
 
 	err = mtd_get_dev_info1(libmtd, mtdn, &mtd);
 	if (err) {
@@ -206,25 +331,11 @@ static int print_dev_info(libmtd_t libmtd, const struct mtd_info *mtd_info, int 
 	printf("Device is writable:             %s\n",
 	      mtd.writable ? "true" : "false");
 
-	if (!args.ubinfo)
-		goto out;
+	if (args.ubinfo)
+		print_ubi_info(mtd_info, &mtd);
 
-	if (!mtd_info->sysfs_supported) {
-		errmsg("cannot provide UBI info, becasue sub-page size is "
-		       "not known");
-		goto out;
-	}
+	print_region_info(&mtd);
 
-	ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, mtd.subpage_size,
-			 0, 1, 0);
-	printf("Default UBI VID header offset:  %d\n", ui.vid_hdr_offs);
-	printf("Default UBI data offset:        %d\n", ui.data_offs);
-	printf("Default UBI LEB size:           ");
-	ubiutils_print_bytes(ui.leb_size, 0);
-	printf("\n");
-	printf("Maximum UBI volumes count:      %d\n", ui.max_volumes);
-
-out:
 	printf("\n");
 	return 0;
 }
@@ -263,7 +374,6 @@ static int print_general_info(libmtd_t libmtd, const struct mtd_info *mtd_info,
 	if (!all)
 		return 0;
 
-	first = 1;
 	printf("\n");
 
 	for (i = mtd_info->lowest_mtd_num;
@@ -300,20 +410,19 @@ int main(int argc, char * const argv[])
 		return sys_errmsg("cannot get MTD information");
 	}
 
-	if (args.node) {
+	if (!args.all && args.node) {
+		int mtdn;
+
 		/*
 		 * A character device was specified, translate this to MTD
 		 * device number.
 		 */
-		err = translate_dev(libmtd, args.node);
-		if (err)
+		mtdn = translate_dev(libmtd, args.node);
+		if (mtdn < 0)
 			goto out_libmtd;
-	}
-
-	if (args.mtdn == -1)
+		err = print_dev_info(libmtd, &mtd_info, mtdn);
+	} else
 		err = print_general_info(libmtd, &mtd_info, args.all);
-	else
-		err = print_dev_info(libmtd, &mtd_info, args.mtdn);
 	if (err)
 		goto out_libmtd;
 

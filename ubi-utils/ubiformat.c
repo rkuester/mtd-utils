@@ -29,7 +29,6 @@
  */
 #define MAX_CONSECUTIVE_BAD_BLOCKS 4
 
-#define PROGRAM_VERSION "1.5"
 #define PROGRAM_NAME    "ubiformat"
 
 #include <sys/stat.h>
@@ -72,7 +71,7 @@ static struct args args =
 	.ubi_ver   = 1,
 };
 
-static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " VERSION
 		" - a tool to format MTD devices and flash UBI images";
 
 static const char optionsstr[] =
@@ -134,8 +133,7 @@ static int parse_opt(int argc, char * const argv[])
 	args.image_seq = rand();
 
 	while (1) {
-		int key;
-		char *endp;
+		int key, error = 0;
 		unsigned long int image_seq;
 
 		key = getopt_long(argc, argv, "nh?Vyqve:x:s:O:f:S:", long_options, NULL);
@@ -152,14 +150,14 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'O':
-			args.vid_hdr_offs = strtoul(optarg, &endp, 0);
-			if (args.vid_hdr_offs <= 0 || *endp != '\0' || endp == optarg)
+			args.vid_hdr_offs = simple_strtoul(optarg, &error);
+			if (error || args.vid_hdr_offs <= 0)
 				return errmsg("bad VID header offset: \"%s\"", optarg);
 			break;
 
 		case 'e':
-			args.ec = strtoull(optarg, &endp, 0);
-			if (args.ec < 0 || *endp != '\0' || endp == optarg)
+			args.ec = simple_strtoull(optarg, &error);
+			if (error || args.ec < 0)
 				return errmsg("bad erase counter value: \"%s\"", optarg);
 			if (args.ec >= EC_MAX)
 				return errmsg("too high erase %llu, counter, max is %u", args.ec, EC_MAX);
@@ -189,14 +187,14 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'x':
-			args.ubi_ver = strtoul(optarg, &endp, 0);
-			if (args.ubi_ver < 0 || *endp != '\0' || endp == optarg)
+			args.ubi_ver = simple_strtoul(optarg, &error);
+			if (error || args.ubi_ver < 0)
 				return errmsg("bad UBI version: \"%s\"", optarg);
 			break;
 
 		case 'Q':
-			image_seq = strtoul(optarg, &endp, 0);
-			if (*endp != '\0'  || endp == optarg || image_seq > 0xFFFFFFFF)
+			image_seq = simple_strtoul(optarg, &error);
+			if (error || image_seq > 0xFFFFFFFF)
 				return errmsg("bad UBI image sequence number: \"%s\"", optarg);
 			args.image_seq = image_seq;
 			break;
@@ -207,14 +205,14 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'V':
-			fprintf(stderr, "%s\n", PROGRAM_VERSION);
+			common_print_version();
 			exit(EXIT_SUCCESS);
 
 		case 'h':
 		case '?':
-			fprintf(stderr, "%s\n\n", doc);
-			fprintf(stderr, "%s\n\n", usage);
-			fprintf(stderr, "%s\n", optionsstr);
+			printf("%s\n\n", doc);
+			printf("%s\n\n", usage);
+			printf("%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
 
 		case ':':
@@ -444,7 +442,7 @@ static int mark_bad(const struct mtd_dev_info *mtd, struct ubi_scan_info *si, in
 static int flash_image(libmtd_t libmtd, const struct mtd_dev_info *mtd,
 		       const struct ubigen_info *ui, struct ubi_scan_info *si)
 {
-	int fd, img_ebs, eb, written_ebs = 0, divisor;
+	int fd, img_ebs, eb, written_ebs = 0, divisor, skip_data_read = 0;
 	off_t st_size;
 
 	fd = open_file(&st_size);
@@ -503,12 +501,15 @@ static int flash_image(libmtd_t libmtd, const struct mtd_dev_info *mtd,
 			continue;
 		}
 
-		err = read_all(fd, buf, mtd->eb_size);
-		if (err) {
-			sys_errmsg("failed to read eraseblock %d from \"%s\"",
-				   written_ebs, args.image);
-			goto out_close;
+		if (!skip_data_read) {
+			err = read_all(fd, buf, mtd->eb_size);
+			if (err) {
+				sys_errmsg("failed to read eraseblock %d from \"%s\"",
+					   written_ebs, args.image);
+				goto out_close;
+			}
 		}
+		skip_data_read = 0;
 
 		if (args.override_ec)
 			ec = args.ec;
@@ -536,7 +537,8 @@ static int flash_image(libmtd_t libmtd, const struct mtd_dev_info *mtd,
 
 		new_len = drop_ffs(mtd, buf, mtd->eb_size);
 
-		err = mtd_write(mtd, args.node_fd, eb, 0, buf, new_len);
+		err = mtd_write(libmtd, mtd, args.node_fd, eb, 0, buf, new_len,
+				NULL, 0, 0);
 		if (err) {
 			sys_errmsg("cannot write eraseblock %d", eb);
 
@@ -548,6 +550,13 @@ static int flash_image(libmtd_t libmtd, const struct mtd_dev_info *mtd,
 				if (mark_bad(mtd, si, eb))
 					goto out_close;
 			}
+
+			/*
+			 * We have to make sure that we do not read next block
+			 * of data from the input image or stdin - we have to
+			 * write buf first instead.
+			 */
+			skip_data_read = 1;
 			continue;
 		}
 		if (++written_ebs >= img_ebs)
@@ -639,7 +648,8 @@ static int format(libmtd_t libmtd, const struct mtd_dev_info *mtd,
 			fflush(stdout);
 		}
 
-		err = mtd_write(mtd, args.node_fd, eb, 0, hdr, write_size);
+		err = mtd_write(libmtd, mtd, args.node_fd, eb, 0, hdr,
+				write_size, NULL, 0, 0);
 		if (err) {
 			if (!args.quiet && !args.verbose)
 				printf("\n");

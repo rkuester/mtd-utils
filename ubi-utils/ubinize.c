@@ -24,7 +24,6 @@
  *          Oliver Lohmann
  */
 
-#define PROGRAM_VERSION "1.2"
 #define PROGRAM_NAME    "ubinize"
 
 #include <sys/stat.h>
@@ -36,10 +35,11 @@
 #include <mtd/ubi-media.h>
 #include <libubigen.h>
 #include <libiniparser.h>
+#include <libubi.h>
 #include "common.h"
 #include "ubiutils-common.h"
 
-static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " VERSION
 " - a tool to generate UBI images. An UBI image may contain one or more UBI "
 "volumes which have to be defined in the input configuration ini-file. The "
 "ini file defines all the UBI volumes - their characteristics and the and the "
@@ -159,8 +159,7 @@ static int parse_opt(int argc, char * const argv[])
 	args.image_seq = rand();
 
 	while (1) {
-		int key;
-		char *endp;
+		int key, error = 0;
 		unsigned long int image_seq;
 
 		key = getopt_long(argc, argv, "o:p:m:s:O:e:x:Q:vhV", long_options, NULL);
@@ -199,26 +198,26 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'O':
-			args.vid_hdr_offs = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.vid_hdr_offs < 0)
+			args.vid_hdr_offs = simple_strtoul(optarg, &error);
+			if (error || args.vid_hdr_offs < 0)
 				return errmsg("bad VID header offset: \"%s\"", optarg);
 			break;
 
 		case 'e':
-			args.ec = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.ec < 0)
+			args.ec = simple_strtoul(optarg, &error);
+			if (error || args.ec < 0)
 				return errmsg("bad erase counter value: \"%s\"", optarg);
 			break;
 
 		case 'x':
-			args.ubi_ver = strtoul(optarg, &endp, 0);
-			if (*endp != '\0'  || endp == optarg || args.ubi_ver < 0)
+			args.ubi_ver = simple_strtoul(optarg, &error);
+			if (error || args.ubi_ver < 0)
 				return errmsg("bad UBI version: \"%s\"", optarg);
 			break;
 
 		case 'Q':
-			image_seq = strtoul(optarg, &endp, 0);
-			if (*endp != '\0'  || endp == optarg || image_seq > 0xFFFFFFFF)
+			image_seq = simple_strtoul(optarg, &error);
+			if (error || image_seq > 0xFFFFFFFF)
 				return errmsg("bad UBI image sequence number: \"%s\"", optarg);
 			args.image_seq = image_seq;
 			break;
@@ -228,14 +227,14 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'h':
-			ubiutils_print_text(stderr, doc, 80);
-			fprintf(stderr, "\n%s\n\n", ini_doc);
-			fprintf(stderr, "%s\n", usage);
-			fprintf(stderr, "%s\n", optionsstr);
+			ubiutils_print_text(stdout, doc, 80);
+			printf("\n%s\n\n", ini_doc);
+			printf("%s\n\n", usage);
+			printf("%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
 
 		case 'V':
-			fprintf(stderr, "%s\n", PROGRAM_VERSION);
+			common_print_version();
 			exit(EXIT_SUCCESS);
 
 		default:
@@ -255,7 +254,7 @@ static int parse_opt(int argc, char * const argv[])
 	if (args.peb_size < 0)
 		return errmsg("physical eraseblock size was not specified (use -h for help)");
 
-	if (args.peb_size > 1024*1024)
+	if (args.peb_size > UBI_MAX_PEB_SZ)
 		return errmsg("too high physical eraseblock size %d", args.peb_size);
 
 	if (args.min_io_size < 0)

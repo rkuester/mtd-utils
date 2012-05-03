@@ -24,7 +24,6 @@
  *          Artem Bityutskiy
  */
 
-#define PROGRAM_VERSION "1.2"
 #define PROGRAM_NAME    "ubiupdatevol"
 
 #include <fcntl.h>
@@ -52,7 +51,7 @@ struct args {
 
 static struct args args;
 
-static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " VERSION
 			 " - a tool to write data to UBI volumes.";
 
 static const char optionsstr[] =
@@ -78,8 +77,7 @@ static const struct option long_options[] = {
 static int parse_opt(int argc, char * const argv[])
 {
 	while (1) {
-		int key;
-		char *endp;
+		int key, error = 0;
 
 		key = getopt_long(argc, argv, "ts:h?V", long_options, NULL);
 		if (key == -1)
@@ -91,20 +89,20 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 's':
-			args.size = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.size < 0)
+			args.size = simple_strtoul(optarg, &error);
+			if (error || args.size < 0)
 				return errmsg("bad size: " "\"%s\"", optarg);
 			break;
 
 		case 'h':
 		case '?':
-			fprintf(stderr, "%s\n\n", doc);
-			fprintf(stderr, "%s\n\n", usage);
-			fprintf(stderr, "%s\n", optionsstr);
+			printf("%s\n\n", doc);
+			printf("%s\n\n", usage);
+			printf("%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
 
 		case 'V':
-			fprintf(stderr, "%s\n", PROGRAM_VERSION);
+			common_print_version();
 			exit(EXIT_SUCCESS);
 
 		case ':':

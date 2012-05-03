@@ -21,7 +21,6 @@
  * Author: Artem Bityutskiy
  */
 
-#define PROGRAM_VERSION "1.1"
 #define PROGRAM_NAME    "ubinfo"
 
 #include <stdint.h>
@@ -51,7 +50,7 @@ static struct args args = {
 	.vol_name = NULL,
 };
 
-static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " VERSION
 			 " - a tool to print UBI information.";
 
 static const char optionsstr[] =
@@ -89,8 +88,7 @@ static const struct option long_options[] = {
 static int parse_opt(int argc, char * const argv[])
 {
 	while (1) {
-		int key;
-		char *endp;
+		int key, error = 0;
 
 		key = getopt_long(argc, argv, "an:N:d:hV", long_options, NULL);
 		if (key == -1)
@@ -102,8 +100,8 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'n':
-			args.vol_id = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.vol_id < 0)
+			args.vol_id = simple_strtoul(optarg, &error);
+			if (error || args.vol_id < 0)
 				return errmsg("bad volume ID: " "\"%s\"", optarg);
 			break;
 
@@ -112,20 +110,20 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'd':
-			args.devn = strtoul(optarg, &endp, 0);
-			if (*endp != '\0' || endp == optarg || args.devn < 0)
+			args.devn = simple_strtoul(optarg, &error);
+			if (error || args.devn < 0)
 				return errmsg("bad UBI device number: \"%s\"", optarg);
 
 			break;
 
 		case 'h':
-			fprintf(stderr, "%s\n\n", doc);
-			fprintf(stderr, "%s\n\n", usage);
-			fprintf(stderr, "%s\n", optionsstr);
+			printf("%s\n\n", doc);
+			printf("%s\n\n", usage);
+			printf("%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
 
 		case 'V':
-			fprintf(stderr, "%s\n", PROGRAM_VERSION);
+			common_print_version();
 			exit(EXIT_SUCCESS);
 
 		case ':':
