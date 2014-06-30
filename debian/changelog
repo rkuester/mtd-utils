@@ -1,3 +1,9 @@
+mtd-utils (1:1.5.0-1) unstable; urgency=low
+
+  * New usptream version
+
+ -- Riku Voipio <riku.voipio@linaro.org>  Wed, 16 May 2012 11:51:48 +0300
+
 mtd-utils (1:1.4.9-1) unstable; urgency=low
 
   * New upstream version
