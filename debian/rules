@@ -13,7 +13,9 @@ unexport LDFLAGS
 
 # This is the debhelper compatability version to use.
 
-build: build-stamp
+build: build-arch build-indep
+build-arch: build-stamp
+build-indep: build-stamp
 build-stamp:
 	dh_testdir
 #	skip building here since "make install" will make anyway
