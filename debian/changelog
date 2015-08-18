@@ -1,3 +1,9 @@
+mtd-utils (1:1.5.2-1) unstable; urgency=medium
+
+  * New upstream version
+
+ -- Riku Voipio <riku.voipio@linaro.org>  Tue, 18 Aug 2015 11:16:21 +0300
+
 mtd-utils (1:1.5.1-1.1) unstable; urgency=medium
 
   * Non-maintainer upload.

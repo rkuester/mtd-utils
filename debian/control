@@ -12,6 +12,7 @@ Vcs-Browser: http://git.debian.org/?p=collab-maint/mtd-utils.git
 Package: mtd-utils
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Multi-Arch: foreign
 Provides: mtd-tools
 Replaces: mtd-tools
 Description: Memory Technology Device Utilities
