@@ -285,6 +285,47 @@ void do_dumpcontent (void)
 				p += PAD(je32_to_cpu (node->d.totlen));
 				break;
 
+			case JFFS2_NODETYPE_XATTR:
+				memcpy(name, node->x.data, node->x.name_len);
+				name[node->x.name_len] = '\x00';
+				printf ("%8s Xattr      node at 0x%08zx, totlen 0x%08x, xid   %5d, version %5d, name_len   %3d, name %s\n",
+						obsolete ? "Obsolete" : "",
+						p - data,
+						je32_to_cpu (node->x.totlen),
+						je32_to_cpu (node->x.xid),
+						je32_to_cpu (node->x.version),
+						node->x.name_len,
+						name);
+
+				crc = mtd_crc32 (0, node, sizeof (struct jffs2_raw_xattr) - sizeof (node->x.node_crc));
+				if (crc != je32_to_cpu (node->x.node_crc)) {
+					printf ("Wrong node_crc at  0x%08zx, 0x%08x instead of 0x%08x\n", p - data, je32_to_cpu (node->x.node_crc), crc);
+					p += PAD(je32_to_cpu (node->x.totlen));
+					dirty += PAD(je32_to_cpu (node->x.totlen));
+					continue;
+				}
+
+				crc = mtd_crc32 (0, p + sizeof (struct jffs2_raw_xattr), node->x.name_len + je16_to_cpu (node->x.value_len) + 1);
+				if (crc != je32_to_cpu (node->x.data_crc)) {
+					printf ("Wrong data_crc at  0x%08zx, 0x%08x instead of 0x%08x\n", p - data, je32_to_cpu (node->x.data_crc), crc);
+					p += PAD(je32_to_cpu (node->x.totlen));
+					dirty += PAD(je32_to_cpu (node->x.totlen));
+					continue;
+				}
+				p += PAD(je32_to_cpu (node->x.totlen));
+				break;
+
+			case JFFS2_NODETYPE_XREF:
+				printf ("%8s Xref       node at 0x%08zx, totlen 0x%08x, xid   %5d, xseqno  %5d, #ino  %8d\n",
+						obsolete ? "Obsolete" : "",
+						p - data,
+						je32_to_cpu (node->r.totlen),
+						je32_to_cpu (node->r.xid),
+						je32_to_cpu (node->r.xseqno),
+						je32_to_cpu (node->r.ino));
+				p += PAD(je32_to_cpu (node->r.totlen));
+				break;
+
 			case JFFS2_NODETYPE_SUMMARY: {
 
 											 int i;
@@ -356,6 +397,29 @@ void do_dumpcontent (void)
 																								  name);
 
 																						  sp += JFFS2_SUMMARY_DIRENT_SIZE(spd->nsize);
+																						  break;
+																					  }
+
+														 case JFFS2_NODETYPE_XATTR : {
+																						  struct jffs2_sum_xattr_flash *spx;
+																						  spx = sp;
+																						  printf ("%14s Xattr  offset 0x%08x, totlen 0x%08x, version %5d, #xid %8d\n",
+																								  "",
+																								  je32_to_cpu (spx->offset),
+																								  je32_to_cpu (spx->totlen),
+																								  je32_to_cpu (spx->version),
+																								  je32_to_cpu (spx->xid));
+																						  sp += JFFS2_SUMMARY_XATTR_SIZE;
+																						  break;
+																					  }
+
+														 case JFFS2_NODETYPE_XREF : {
+																						  struct jffs2_sum_xref_flash *spr;
+																						  spr = sp;
+																						  printf ("%14s Xref   offset 0x%08x\n",
+																								  "",
+																								  je32_to_cpu (spr->offset));
+																						  sp += JFFS2_SUMMARY_XREF_SIZE;
 																						  break;
 																					  }
 
@@ -521,6 +585,39 @@ void do_endianconvert (void)
 				p += PAD(je32_to_cpu (node->d.totlen));
 				break;
 
+			case JFFS2_NODETYPE_XATTR:
+				newnode.x.magic = cnv_e16 (node->x.magic);
+				newnode.x.nodetype = cnv_e16 (node->x.nodetype);
+				newnode.x.totlen = cnv_e32 (node->x.totlen);
+				newnode.x.hdr_crc = cpu_to_e32 (mtd_crc32 (0, &newnode, sizeof (struct jffs2_unknown_node) - 4));
+				newnode.x.xid = cnv_e32 (node->x.xid);
+				newnode.x.version = cnv_e32 (node->x.version);
+				newnode.x.xprefix = node->x.xprefix;
+				newnode.x.name_len = node->x.name_len;
+				newnode.x.value_len = cnv_e16 (node->x.value_len);
+				if (recalccrc)
+					newnode.x.data_crc = cpu_to_e32 (mtd_crc32 (0, p + sizeof (struct jffs2_raw_xattr), node->x.name_len + je16_to_cpu (node->x.value_len) + 1));
+				else
+					newnode.x.data_crc = cnv_e32 (node->x.data_crc);
+				newnode.x.node_crc = cpu_to_e32 (mtd_crc32 (0, &newnode, sizeof (struct jffs2_raw_xattr) - sizeof (newnode.x.node_crc)));
+
+				write (fd, &newnode, sizeof (struct jffs2_raw_xattr));
+				write (fd, p + sizeof (struct jffs2_raw_xattr), PAD (je32_to_cpu (node->d.totlen) -  sizeof (struct jffs2_raw_xattr)));
+				p += PAD(je32_to_cpu (node->x.totlen));
+				break;
+
+			case JFFS2_NODETYPE_XREF:
+				newnode.r.magic = cnv_e16 (node->r.magic);
+				newnode.r.nodetype = cnv_e16 (node->r.nodetype);
+				newnode.r.totlen = cnv_e32 (node->r.totlen);
+				newnode.r.hdr_crc = cpu_to_e32 (mtd_crc32 (0, &newnode, sizeof (struct jffs2_unknown_node) - sizeof (newnode.r.hdr_crc)));
+				newnode.r.ino = cnv_e32 (node->r.ino);
+				newnode.r.xid = cnv_e32 (node->r.xid);
+				newnode.r.xseqno = cnv_e32 (node->r.xseqno);
+				newnode.r.node_crc = cpu_to_e32 (mtd_crc32 (0, &newnode, sizeof (struct jffs2_raw_xref) - sizeof (newnode.r.node_crc)));
+				p += PAD(je32_to_cpu (node->x.totlen));
+				break;
+
 			case JFFS2_NODETYPE_CLEANMARKER:
 			case JFFS2_NODETYPE_PADDING:
 				newnode.u.magic = cnv_e16 (node->u.magic);
@@ -583,6 +680,23 @@ void do_endianconvert (void)
 														  fl_ptr->d.ino = cnv_e32 (fl_ptr->d.ino);
 														  p += sizeof (struct jffs2_sum_dirent_flash) + fl_ptr->d.nsize;
 														  counter += sizeof (struct jffs2_sum_dirent_flash) + fl_ptr->d.nsize;
+														  break;
+
+													  case JFFS2_NODETYPE_XATTR:
+														  fl_ptr->x.nodetype = cnv_e16 (fl_ptr->x.nodetype);
+														  fl_ptr->x.xid = cnv_e32 (fl_ptr->x.xid);
+														  fl_ptr->x.version = cnv_e32 (fl_ptr->x.version);
+														  fl_ptr->x.offset = cnv_e32 (fl_ptr->x.offset);
+														  fl_ptr->x.totlen = cnv_e32 (fl_ptr->x.totlen);
+														  p += sizeof (struct jffs2_sum_xattr_flash);
+														  counter += sizeof (struct jffs2_sum_xattr_flash);
+														  break;
+
+													  case JFFS2_NODETYPE_XREF:
+														  fl_ptr->r.nodetype = cnv_e16 (fl_ptr->r.nodetype);
+														  fl_ptr->r.offset = cnv_e32 (fl_ptr->r.offset);
+														  p += sizeof (struct jffs2_sum_xref_flash);
+														  counter += sizeof (struct jffs2_sum_xref_flash);
 														  break;
 
 													  default :

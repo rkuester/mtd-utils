@@ -24,6 +24,7 @@ void usage(int status)
 		"  -m, --markbad        Mark blocks bad if they appear so\n"
 		"  -s, --seed           Supply random seed\n"
 		"  -p, --passes         Number of passes\n"
+		"  -r <n>, --reads=<n>  Read & check <n> times per pass\n"
 		"  -o, --offset         Start offset on flash\n"
 		"  -l, --length         Length of flash to test\n"
 		"  -k, --keep           Restore existing contents after test\n",
@@ -37,11 +38,60 @@ int fd;
 int markbad=0;
 int seed;
 
-int erase_and_write(loff_t ofs, unsigned char *data, unsigned char *rbuf)
+int read_and_compare(loff_t ofs, unsigned char *data, unsigned char *rbuf)
+{
+	ssize_t len;
+	int i;
+
+	len = pread(fd, rbuf, meminfo.erasesize, ofs);
+	if (len < meminfo.erasesize) {
+		printf("\n");
+		if (len)
+			fprintf(stderr, "Short read (%zd bytes)\n", len);
+		else
+			perror("read");
+		exit(1);
+	}
+
+	if (ioctl(fd, ECCGETSTATS, &newstats)) {
+		printf("\n");
+		perror("ECCGETSTATS");
+		close(fd);
+		exit(1);
+	}
+
+	if (newstats.corrected > oldstats.corrected) {
+		printf("\n %d bit(s) ECC corrected at %08x\n",
+				newstats.corrected - oldstats.corrected,
+				(unsigned) ofs);
+		oldstats.corrected = newstats.corrected;
+	}
+	if (newstats.failed > oldstats.failed) {
+		printf("\nECC failed at %08x\n", (unsigned) ofs);
+		oldstats.failed = newstats.failed;
+	}
+
+	printf("\r%08x: checking...", (unsigned)ofs);
+	fflush(stdout);
+
+	if (memcmp(data, rbuf, meminfo.erasesize)) {
+		printf("\n");
+		fprintf(stderr, "compare failed. seed %d\n", seed);
+		for (i=0; i<meminfo.erasesize; i++) {
+			if (data[i] != rbuf[i])
+				printf("Byte 0x%x is %02x should be %02x\n",
+				       i, rbuf[i], data[i]);
+		}
+		return 1;
+	}
+	return 0;
+}
+
+int erase_and_write(loff_t ofs, unsigned char *data, unsigned char *rbuf, int nr_reads)
 {
 	struct erase_info_user er;
 	ssize_t len;
-	int i;
+	int i, read_errs = 0;
 
 	printf("\r%08x: erasing... ", (unsigned)ofs);
 	fflush(stdout);
@@ -77,51 +127,15 @@ int erase_and_write(loff_t ofs, unsigned char *data, unsigned char *rbuf)
 		exit(1);
 	}
 
-	printf("\r%08x: reading...", (unsigned)ofs);
-	fflush(stdout);
-
-	len = pread(fd, rbuf, meminfo.erasesize, ofs);
-	if (len < meminfo.erasesize) {
-		printf("\n");
-		if (len)
-			fprintf(stderr, "Short read (%zd bytes)\n", len);
-		else
-			perror("read");
-		exit(1);
+	for (i=1; i<=nr_reads; i++) {
+		printf("\r%08x: reading (%d of %d)...", (unsigned)ofs, i, nr_reads);
+		fflush(stdout);
+		if (read_and_compare(ofs, data, rbuf))
+			read_errs++;
 	}
-
-	if (ioctl(fd, ECCGETSTATS, &newstats)) {
-		printf("\n");
-		perror("ECCGETSTATS");
-		close(fd);
-		exit(1);
-	}
-
-	if (newstats.corrected > oldstats.corrected) {
-		printf("\n %d bit(s) ECC corrected at %08x\n",
-				newstats.corrected - oldstats.corrected,
-				(unsigned) ofs);
-		oldstats.corrected = newstats.corrected;
-	}
-	if (newstats.failed > oldstats.failed) {
-		printf("\nECC failed at %08x\n", (unsigned) ofs);
-		oldstats.failed = newstats.failed;
-	}
-	if (len < meminfo.erasesize)
-		exit(1);
-
-	printf("\r%08x: checking...", (unsigned)ofs);
-	fflush(stdout);
-
-	if (memcmp(data, rbuf, meminfo.erasesize)) {
-		printf("\n");
-		fprintf(stderr, "compare failed. seed %d\n", seed);
-		for (i=0; i<meminfo.erasesize; i++) {
-			if (data[i] != rbuf[i])
-				printf("Byte 0x%x is %02x should be %02x\n",
-				       i, rbuf[i], data[i]);
-		}
-		exit(1);
+	if (read_errs) {
+		fprintf(stderr, "read/check %d of %d failed. seed %d\n", read_errs, nr_reads, seed);
+		return 1;
 	}
 	return 0;
 }
@@ -136,6 +150,7 @@ int main(int argc, char **argv)
 	unsigned char *wbuf, *rbuf, *kbuf;
 	int pass;
 	int nr_passes = 1;
+	int nr_reads = 4;
 	int keep_contents = 0;
 	uint32_t offset = 0;
 	uint32_t length = -1;
@@ -143,7 +158,7 @@ int main(int argc, char **argv)
 	seed = time(NULL);
 
 	for (;;) {
-		static const char short_options[] = "hkl:mo:p:s:";
+		static const char short_options[] = "hkl:mo:p:r:s:";
 		static const struct option long_options[] = {
 			{ "help", no_argument, 0, 'h' },
 			{ "markbad", no_argument, 0, 'm' },
@@ -151,6 +166,7 @@ int main(int argc, char **argv)
 			{ "passes", required_argument, 0, 'p' },
 			{ "offset", required_argument, 0, 'o' },
 			{ "length", required_argument, 0, 'l' },
+			{ "reads", required_argument, 0, 'r' },
 			{ "keep", no_argument, 0, 'k' },
 			{0, 0, 0, 0},
 		};
@@ -182,6 +198,10 @@ int main(int argc, char **argv)
 
 		case 'p':
 			nr_passes = atol(optarg);
+			break;
+
+		case 'r':
+			nr_reads = atol(optarg);
 			break;
 
 		case 'o':
@@ -281,10 +301,10 @@ int main(int argc, char **argv)
 					exit(1);
 				}
 			}
-			if (erase_and_write(test_ofs, wbuf, rbuf))
+			if (erase_and_write(test_ofs, wbuf, rbuf, nr_reads))
 				continue;
 			if (keep_contents)
-				erase_and_write(test_ofs, kbuf, rbuf);
+				erase_and_write(test_ofs, kbuf, rbuf, 1);
 		}
 		printf("\nFinished pass %d successfully\n", pass+1);
 	}

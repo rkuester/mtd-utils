@@ -476,7 +476,7 @@ static int dev_node2num(struct libmtd *lib, const char *node, int *mtd_num)
  * sysfs_is_supported - check whether the MTD sub-system supports MTD.
  * @lib: MTD library descriptor
  *
- * The Linux kernel MTD subsystem gained MTD support starting from kernel
+ * The Linux kernel MTD subsystem gained sysfs support starting from kernel
  * 2.6.30 and libmtd tries to use sysfs interface if possible, because the NAND
  * sub-page size is available there (and not available at all in pre-sysfs
  * kernels).
@@ -647,9 +647,9 @@ int mtd_dev_present(libmtd_t desc, int mtd_num) {
 	struct stat st;
 	struct libmtd *lib = (struct libmtd *)desc;
 
-	if (!lib->sysfs_supported)
-		return legacy_dev_present(mtd_num);
-	else {
+	if (!lib->sysfs_supported) {
+		return legacy_dev_present(mtd_num) == 1;
+	} else {
 		char file[strlen(lib->mtd) + 10];
 
 		sprintf(file, lib->mtd, mtd_num);
@@ -900,6 +900,8 @@ int mtd_regioninfo(int fd, int regidx, struct region_info_user *reginfo)
 		errno = ENODEV;
 		return -1;
 	}
+
+	reginfo->regionindex = regidx;
 
 	ret = ioctl(fd, MEMGETREGIONINFO, reginfo);
 	if (ret < 0)
