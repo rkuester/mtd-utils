@@ -30,6 +30,10 @@ extern "C" {
 
 #define PROGRAM_NAME "libmtd"
 
+#ifndef SYSFS_ROOT
+#define SYSFS_ROOT "/sys"
+#endif
+
 #define SYSFS_MTD        "class/mtd"
 #define MTD_NAME_PATT    "mtd%d"
 #define MTD_DEV          "dev"
@@ -94,7 +98,6 @@ struct libmtd
 	unsigned int offs64_ioctls:2;
 };
 
-int legacy_libmtd_open(void);
 int legacy_dev_present(int mtd_num);
 int legacy_mtd_get_info(struct mtd_info *info);
 int legacy_get_dev_info(const char *node, struct mtd_dev_info *mtd);

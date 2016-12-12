@@ -28,7 +28,10 @@
 #include <errno.h>
 #include <features.h>
 #include <inttypes.h>
-#include "version.h"
+#include <unistd.h>
+#include <sys/sysmacros.h>
+
+#include "config.h"
 
 #ifndef PROGRAM_NAME
 # error "You must define PROGRAM_NAME before including this header"
@@ -71,8 +74,13 @@ extern "C" {
 #define PRIxoff_t PRIx64
 #define PRIdoff_t PRId64
 #else
+#if (SIZEOF_LONG == SIZEOF_LOFF_T)
 #define PRIxoff_t "l"PRIx32
 #define PRIdoff_t "l"PRId32
+#else
+#define PRIxoff_t "ll"PRIx32
+#define PRIdoff_t "ll"PRId32
+#endif
 #endif
 
 /* Verbose messages */
@@ -210,11 +218,47 @@ simple_strtoX(strtoull, unsigned long long int)
 /* Simple version-printing for utils */
 #define common_print_version() \
 do { \
-	printf("%s %s\n", PROGRAM_NAME, VERSION); \
+	printf("%s (mtd-utils) %s\n", PROGRAM_NAME, VERSION); \
 } while (0)
 
 #include "xalloc.h"
 
+long long util_get_bytes(const char *str);
+void util_print_bytes(long long bytes, int bracket);
+int util_srand(void);
+
+/*
+ * The following helpers are here to avoid compiler complaints about unchecked
+ * return code.
+ * FIXME: The proper fix would be to check the return code in all those places,
+ * but it's usually placed in old code which have no proper exit path and
+ * handling  errors requires rewriting a lot of code.
+ *
+ * WARNING: Please do not use these helpers in new code. Instead, make sure
+ * you check the function return code and provide coherent error handling in
+ * case of error.
+ */
+static inline ssize_t read_nocheck(int fd, void *buf, size_t count)
+{
+	return read(fd, buf, count);
+}
+
+static inline ssize_t write_nocheck(int fd, void *buf, size_t count)
+{
+	return write(fd, buf, count);
+}
+
+static inline ssize_t pread_nocheck(int fd, void *buf, size_t count,
+				    off_t offset)
+{
+	return pread(fd, buf, count, offset);
+}
+
+static inline ssize_t pwrite_nocheck(int fd, void *buf, size_t count,
+				     off_t offset)
+{
+	return pwrite(fd, buf, count, offset);
+}
 #ifdef __cplusplus
 }
 #endif

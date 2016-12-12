@@ -174,6 +174,20 @@ int mtd_lock(const struct mtd_dev_info *mtd, int fd, int eb);
 int mtd_unlock(const struct mtd_dev_info *mtd, int fd, int eb);
 
 /**
+ * mtd_erase - erase multiple eraseblocks.
+ * @desc: MTD library descriptor
+ * @mtd: MTD device description object
+ * @fd: MTD device node file descriptor
+ * @eb: index of first eraseblock to erase
+ * @blocks: the number of eraseblocks to erase
+ *
+ * This function erases @blocks starting at eraseblock @eb of MTD device
+ * described by @fd. Returns %0 in case of success and %-1 in case of failure.
+ */
+int mtd_erase_multi(libmtd_t desc, const struct mtd_dev_info *mtd,
+			int fd, int eb, int blocks);
+
+/**
  * mtd_erase - erase an eraseblock.
  * @desc: MTD library descriptor
  * @mtd: MTD device description object
@@ -318,21 +332,6 @@ int mtd_read_oob(libmtd_t desc, const struct mtd_dev_info *mtd, int fd,
  */
 int mtd_write_oob(libmtd_t desc, const struct mtd_dev_info *mtd, int fd,
 		  uint64_t start, uint64_t length, void *data);
-
-/**
- * mtd_write_img - write a file to MTD device.
- * @mtd: MTD device description object
- * @fd: MTD device node file descriptor
- * @eb: eraseblock to write to
- * @offs: offset withing the eraseblock to write to
- * @img_name: the file to write
- *
- * This function writes an image @img_name the MTD device defined by @mtd. @eb
- * and @offs are the starting eraseblock and offset on the MTD device. Returns
- * %0 in case of success and %-1 in case of failure.
- */
-int mtd_write_img(const struct mtd_dev_info *mtd, int fd, int eb, int offs,
-		  const char *img_name);
 
 /**
  * mtd_probe_node - test MTD node.
