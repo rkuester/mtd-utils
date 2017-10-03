@@ -35,6 +35,7 @@ include ubi-utils/Makemodule.am
 include misc-utils/Makemodule.am
 include nand-utils/Makemodule.am
 include nor-utils/Makemodule.am
+include a5n2-utils/Makemodule.am
 
 if BUILD_UBIFS
 include ubifs-utils/Makemodule.am

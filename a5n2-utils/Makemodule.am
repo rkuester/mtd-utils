@@ -1,0 +1,7 @@
+a5n2_ubireerase_SOURCES = a5n2-utils/a5n2_ubireerase.c
+a5n2_ubireerase_LDADD = libmtd.a libubi.a
+
+a5n2_ubirefresh_SOURCES = a5n2-utils/a5n2_ubirefresh.c
+a5n2_ubirefresh_LDADD = libmtd.a libubi.a
+
+sbin_PROGRAMS += a5n2_ubireerase a5n2_ubirefresh
