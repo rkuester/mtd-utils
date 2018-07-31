@@ -50,7 +50,7 @@
 long	imglen;		// length of image
 char	*data;		// image data
 
-void display_help (void)
+static void display_help (int error)
 {
 	printf("Usage: %s [OPTION]... INPUTFILE\n"
 	       "Dump the contents of a binary JFFS2 image.\n\n"
@@ -65,10 +65,10 @@ void display_help (void)
 	       " -o, --oobsize=LEN            size of oob data chunk in binary image (NAND only)\n"
 	       " -v, --verbose                verbose output\n",
 	       PROGRAM_NAME);
-	exit(0);
+	exit(error ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
-void display_version (void)
+static void display_version (void)
 {
 	common_print_version();
 	printf("Copyright (C) 2003 Thomas Gleixner \n"
@@ -95,7 +95,7 @@ char	cnvfile[256];		// filename for conversion output
 int	datsize;		// Size of data chunks, when oob data is inside the binary image
 int	oobsize;		// Size of oob chunks, when oob data is inside the binary image
 
-void process_options (int argc, char *argv[])
+static void process_options (int argc, char *argv[])
 {
 	int error = 0;
 
@@ -124,7 +124,7 @@ void process_options (int argc, char *argv[])
 
 		switch (c) {
 			case 'h':
-				display_help();
+				display_help(0);
 				break;
 			case 'V':
 				display_version();
@@ -161,7 +161,7 @@ void process_options (int argc, char *argv[])
 	}
 
 	if ((argc - optind) != 1 || error)
-		display_help ();
+		display_help (error);
 
 	img = argv[optind];
 }
@@ -170,7 +170,7 @@ void process_options (int argc, char *argv[])
 /*
  *	Dump image contents
  */
-void do_dumpcontent (void)
+static void do_dumpcontent (void)
 {
 	char			*p = data, *p_free_begin;
 	union jffs2_node_union 	*node;
@@ -479,7 +479,7 @@ void do_dumpcontent (void)
 /*
  *	Convert endianess
  */
-void do_endianconvert (void)
+static void do_endianconvert (void)
 {
 	char			*p = data;
 	union jffs2_node_union 	*node, newnode;
@@ -751,7 +751,7 @@ int main(int argc, char **argv)
 	/* Open the input file */
 	if ((fd = open(img, O_RDONLY)) == -1) {
 		perror("open input file");
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	// get image length
@@ -762,7 +762,7 @@ int main(int argc, char **argv)
 	if (!data) {
 		perror("out of memory");
 		close (fd);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	if (datsize && oobsize) {
@@ -796,5 +796,5 @@ int main(int argc, char **argv)
 	free (data);
 
 	// Return happy
-	exit (0);
+	exit (EXIT_SUCCESS);
 }

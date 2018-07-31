@@ -687,7 +687,7 @@ void libubi_close(libubi_t desc)
  * success and %-1 in case of failure. @r->ubi_num contains newly created UBI
  * device number.
  */
-static int do_attach(const char *node, const struct ubi_attach_req *r)
+static int do_attach(const char *node, struct ubi_attach_req *r)
 {
 	int fd, ret;
 
@@ -700,11 +700,6 @@ static int do_attach(const char *node, const struct ubi_attach_req *r)
 	if (ret == -1)
 		return -1;
 
-#ifdef UDEV_SETTLE_HACK
-//	if (system("udevsettle") == -1)
-//		return -1;
-	usleep(100000);
-#endif
 	return ret;
 }
 
@@ -849,12 +844,6 @@ int ubi_remove_dev(libubi_t desc, const char *node, int ubi_dev)
 	ret = ioctl(fd, UBI_IOCDET, &ubi_dev);
 	if (ret == -1)
 		goto out_close;
-
-#ifdef UDEV_SETTLE_HACK
-//	if (system("udevsettle") == -1)
-//		return -1;
-	usleep(100000);
-#endif
 
 out_close:
 	close(fd);
@@ -1034,12 +1023,6 @@ int ubi_mkvol(libubi_t desc, const char *node, struct ubi_mkvol_request *req)
 	close(fd);
 	req->vol_id = r.vol_id;
 
-#ifdef UDEV_SETTLE_HACK
-//	if (system("udevsettle") == -1)
-//		return -1;
-	usleep(100000);
-#endif
-
 	return 0;
 }
 
@@ -1060,12 +1043,6 @@ int ubi_rmvol(libubi_t desc, const char *node, int vol_id)
 
 	close(fd);
 
-#ifdef UDEV_SETTLE_HACK
-//	if (system("udevsettle") == -1)
-//		return -1;
-	usleep(100000);
-#endif
-
 	return 0;
 }
 
@@ -1085,12 +1062,6 @@ int ubi_rnvols(libubi_t desc, const char *node, struct ubi_rnvol_req *rnvol)
 	}
 
 	close(fd);
-
-#ifdef UDEV_SETTLE_HACK
-//	if (system("udevsettle") == -1)
-//		return -1;
-	usleep(100000);
-#endif
 
 	return 0;
 }
@@ -1115,12 +1086,12 @@ int ubi_rsvol(libubi_t desc, const char *node, int vol_id, long long bytes)
 
 int ubi_vol_block_create(int fd)
 {
-	return ioctl(fd, UBI_IOCVOLCRBLK);
+	return ioctl(fd, UBI_IOCVOLCRBLK, NULL);
 }
 
 int ubi_vol_block_remove(int fd)
 {
-	return ioctl(fd, UBI_IOCVOLRMBLK);
+	return ioctl(fd, UBI_IOCVOLRMBLK, NULL);
 }
 
 int ubi_update_start(libubi_t desc, int fd, long long bytes)
@@ -1271,8 +1242,11 @@ int ubi_get_vol_info1(libubi_t desc, int dev_num, int vol_id,
 	info->dev_num = dev_num;
 	info->vol_id = vol_id;
 
-	if (vol_get_major(lib, dev_num, vol_id, &info->major, &info->minor))
+	if (vol_get_major(lib, dev_num, vol_id, &info->major, &info->minor)) {
+		if (errno == ENOENT)
+			errno = ENODEV;
 		return -1;
+	}
 
 	ret = vol_read_data(lib->vol_type, dev_num, vol_id, buf, 50);
 	if (ret < 0)

@@ -72,6 +72,7 @@
 #include <byteswap.h>
 #include <crc32.h>
 #include <inttypes.h>
+#include <limits.h>
 
 #include "rbtree.h"
 #include "common.h"
@@ -111,7 +112,7 @@ static int squash_perms = 0;
 static int fake_times = 0;
 int target_endian = __BYTE_ORDER;
 
-uint32_t find_hardlink(struct filesystem_entry *e)
+static uint32_t find_hardlink(struct filesystem_entry *e)
 {
 	struct filesystem_entry *f;
 	struct rb_node **n = &hardlinks.rb_node;
@@ -138,7 +139,7 @@ uint32_t find_hardlink(struct filesystem_entry *e)
 	return 0;
 }
 
-extern char *xreadlink(const char *path)
+static char *xreadlink(const char *path)
 {
 	static const int GROWBY = 80; /* how large we will grow strings by */
 
@@ -1051,7 +1052,7 @@ static void formalize_posix_acl(void *xvalue, int *value_len)
 	if (offset > *value_len) {
 		printf("Length of JFFS2 ACL expression(%u) is longer than general one(%u).\n",
 				offset, *value_len);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	memcpy(xvalue, buffer, offset);
 	*value_len = offset;
@@ -1427,7 +1428,7 @@ static const char helptext[] =
 "  -V, --version           Display version information\n"
 "  -i, --incremental=FILE  Parse FILE and generate appendage output for it\n\n";
 
-int load_next_block() {
+static int load_next_block(void) {
 
 	int ret;
 	ret = read(in_fd, file_buffer, erase_block_size);
@@ -1438,7 +1439,7 @@ int load_next_block() {
 	return ret;
 }
 
-void process_buffer(int inp_size) {
+static void process_buffer(int inp_size) {
 	uint8_t		*p = file_buffer;
 	union jffs2_node_union 	*node;
 	uint16_t	type;
@@ -1541,7 +1542,7 @@ void process_buffer(int inp_size) {
 	}
 }
 
-void parse_image(){
+static void parse_image(void){
 	int ret;
 
 	file_buffer = xmalloc(erase_block_size);
@@ -1628,9 +1629,11 @@ int main(int argc, char **argv)
 				break;
 
 			case 'h':
-			case '?':
 				puts(helptext);
 				exit(EXIT_SUCCESS);
+			case '?':
+				puts(helptext);
+				exit(EXIT_FAILURE);
 
 			case 'v':
 				verbose = 1;

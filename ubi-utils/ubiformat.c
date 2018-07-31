@@ -209,11 +209,15 @@ static int parse_opt(int argc, char * const argv[])
 			exit(EXIT_SUCCESS);
 
 		case 'h':
-		case '?':
 			printf("%s\n\n", doc);
 			printf("%s\n\n", usage);
 			printf("%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
+		case '?':
+			printf("%s\n\n", doc);
+			printf("%s\n\n", usage);
+			printf("%s\n", optionsstr);
+			return -1;
 
 		case ':':
 			return errmsg("parameter is missing");
@@ -698,8 +702,6 @@ int main(int argc, char * const argv[])
 
 	err = mtd_get_info(libmtd, &mtd_info);
 	if (err) {
-		if (errno == ENODEV)
-			errmsg("MTD is not present");
 		sys_errmsg("cannot get MTD information");
 		goto out_close_mtd;
 	}

@@ -70,17 +70,21 @@ extern "C" {
 #endif
 
 /* define a print format specifier for off_t */
-#ifdef __USE_FILE_OFFSET64
+#if (SIZEOF_OFF_T >= 8)
 #define PRIxoff_t PRIx64
 #define PRIdoff_t PRId64
 #else
-#if (SIZEOF_LONG == SIZEOF_LOFF_T)
 #define PRIxoff_t "l"PRIx32
 #define PRIdoff_t "l"PRId32
-#else
-#define PRIxoff_t "ll"PRIx32
-#define PRIdoff_t "ll"PRId32
 #endif
+
+/* define a print format specifier for loff_t */
+#if (SIZEOF_LOFF_T >= 8)
+#define PRIxloff_t PRIx64
+#define PRIdloff_t PRId64
+#else
+#define PRIxloff_t "l"PRIx32
+#define PRIdloff_t "l"PRId32
 #endif
 
 /* Verbose messages */
@@ -125,21 +129,6 @@ extern "C" {
 	fprintf(stderr, "%s: warning!: " fmt "\n", PROGRAM_NAME, ##__VA_ARGS__); \
 } while(0)
 
-/* uClibc versions before 0.9.34 and musl don't have rpmatch() */
-#if defined(__UCLIBC__) && \
-		(__UCLIBC_MAJOR__ == 0 && \
-		(__UCLIBC_MINOR__ < 9 || \
-		(__UCLIBC_MINOR__ == 9 && __UCLIBC_SUBLEVEL__ < 34))) || \
-	!defined(__GLIBC__)
-#undef rpmatch
-#define rpmatch __rpmatch
-static inline int __rpmatch(const char *resp)
-{
-    return (resp[0] == 'y' || resp[0] == 'Y') ? 1 :
-	(resp[0] == 'n' || resp[0] == 'N') ? 0 : -1;
-}
-#endif
-
 /**
  * prompt the user for confirmation
  */
@@ -160,10 +149,12 @@ static inline bool prompt(const char *msg, bool def)
 		}
 
 		if (strcmp("\n", line) != 0) {
-			switch (rpmatch(line)) {
-			case 0: ret = false; break;
-			case 1: ret = true; break;
-			case -1:
+			switch (line[0]) {
+			case 'N':
+			case 'n': ret = false; break;
+			case 'Y':
+			case 'y': ret = true; break;
+			default:
 				puts("unknown response; please try again");
 				continue;
 			}

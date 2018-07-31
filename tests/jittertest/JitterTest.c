@@ -426,6 +426,8 @@ void SignalHandler(
     char tmpBuf[200];
 
     /* Note sigNum not used. */
+    (void)sigNum;
+
     printf("Ctrl+C detected. Worst Jitter time was:%fms.\nJitterTest exiting.\n",
            (float)LastMaxDiff/1000.0);
 
@@ -451,12 +453,14 @@ void SignalHandler(
   stats reset by doing a (any) write to the /proc/profile
   file.
  */
-void doGrabKProfile(int jitterusec, char *fileName)
+static void doGrabKProfile(int jitterusec, char *fileName)
 {
     int fdSnapshot;
     int fdProfile;
     int readBytes;
     char readBuf[4096];
+
+    (void)jitterusec;
 
     if((fdSnapshot = open(fileName, O_WRONLY | O_CREAT, S_IRWXU)) <= 0)
     {
@@ -498,7 +502,7 @@ void doGrabKProfile(int jitterusec, char *fileName)
 /*
   Call this routine to clear the kernel profiling buffer /proc/profile
 */
-void clearProfileBuf(void){
+static void clearProfileBuf(void){
 
 
   int fdProfile;
@@ -552,6 +556,8 @@ void AlarmHandler(
 				   where time() will be the same as this time
 				   if invoked < 1sec apart.
 				*/
+
+    (void)sigNum;
 
     if (gettimeofday(&CurrTimeVal, NULL) == (int) 0) {
 

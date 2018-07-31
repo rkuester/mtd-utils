@@ -41,7 +41,7 @@ static int fd;
 /* Data lengthes to test, @io - minimal I/O unit size, @s - eraseblock size */
 #define LENGTHES(io, s)                                                        \
 	{1, (io), (io)+1, 2*(io), 3*(io)-1, 3*(io),                            \
-	 PAGE_SIZE-1, PAGE_SIZE-(io), 2*PAGE_SIZE, 2*PAGE_SIZE-(io),           \
+	 MAX_NAND_PAGE_SIZE-1, MAX_NAND_PAGE_SIZE-(io), 2*MAX_NAND_PAGE_SIZE, 2*MAX_NAND_PAGE_SIZE-(io),           \
 	 (s)/2-1, (s)/2, (s)/2+1, (s)-1, (s), (s)+1, 2*(s)-(io), 2*(s),        \
 	 2*(s)+(io), 3*(s), 3*(s)+(io)};
 
@@ -51,9 +51,9 @@ static int fd;
  */
 #define OFFSETS(io, s, sz)                                                     \
 	{0, (io)-1, (io), (io)+1, 2*(io)-1, 2*(io), 3*(io)-1, 3*(io),          \
-	 PAGE_SIZE-1, PAGE_SIZE-(io), 2*PAGE_SIZE, 2*PAGE_SIZE-(io),           \
+	 MAX_NAND_PAGE_SIZE-1, MAX_NAND_PAGE_SIZE-(io), 2*MAX_NAND_PAGE_SIZE, 2*MAX_NAND_PAGE_SIZE-(io),           \
 	 (s)/2-1, (s)/2, (s)/2+1, (s)-1, (s), (s)+1, 2*(s)-(io), 2*(s),        \
-	 2*(s)+(io), 3*(s), (sz)-(s)-1, (sz)-(io)-1, (sz)-PAGE_SIZE-1};
+	 2*(s)+(io), 3*(s), (sz)-(s)-1, (sz)-(io)-1, (sz)-MAX_NAND_PAGE_SIZE-1};
 
 /**
  * test_static - test static volume-specific features.
@@ -161,8 +161,18 @@ remove:
 static int test_read3(const struct ubi_vol_info *vol_info, int len, off_t off)
 {
 	int i, len1;
-	unsigned char ck_buf[len], buf[len];
+	unsigned char *ck_buf = NULL;
+	unsigned char *buf = NULL;
 	off_t new_off;
+	int ret = -1;
+
+	ck_buf = malloc(len);
+	buf = malloc(len);
+
+	if (!ck_buf || !buf) {
+		failed("malloc");
+		goto out;
+	}
 
 	if (off + len > vol_info->data_bytes)
 		len1 = vol_info->data_bytes - off;
@@ -172,12 +182,12 @@ static int test_read3(const struct ubi_vol_info *vol_info, int len, off_t off)
 	if (lseek(fd, off, SEEK_SET) != off) {
 		failed("seek");
 		errorm("len = %d", len);
-		return -1;
+		goto out;
 	}
 	if (read(fd, buf, len) != len1) {
 		failed("read");
 		errorm("len = %d", len);
-		return -1;
+		goto out;
 	}
 
 	new_off = lseek(fd, 0, SEEK_CUR);
@@ -187,7 +197,7 @@ static int test_read3(const struct ubi_vol_info *vol_info, int len, off_t off)
 		else
 			errorm("read %d bytes from %lld, but resulting "
 			       "offset is %lld", len1, (long long) off, (long long) new_off);
-		return -1;
+		goto out;
 	}
 
 	for (i = 0; i < len1; i++)
@@ -197,10 +207,14 @@ static int test_read3(const struct ubi_vol_info *vol_info, int len, off_t off)
 		errorm("incorrect data read from offset %lld",
 		       (long long)off);
 		errorm("len = %d", len);
-		return -1;
+		goto out;
 	}
 
-	return 0;
+	ret = 0;
+out:
+	free(buf);
+	free(ck_buf);
+	return ret;
 }
 
 /*

@@ -18,7 +18,10 @@
 #include <crc32.h>
 #include <inttypes.h>
 
+#include <common.h>
+
 #include "mcast_image.h"
+#include "libfec.h"
 
 int tx_rate = 80000;
 int pkt_delay;
@@ -126,7 +129,7 @@ int main(int argc, char **argv)
 	}
 
 	if (st.st_size % erasesize) {
-		fprintf(stderr, "Image size %" PRIu64 " bytes is not a multiple of erasesize %d bytes\n",
+		fprintf(stderr, "Image size %" PRIdoff_t " bytes is not a multiple of erasesize %d bytes\n",
 				st.st_size, erasesize);
 		exit(1);
 	}

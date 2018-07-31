@@ -1640,7 +1640,7 @@ static char *symlink_path(const char *path, const char *target_pathname)
 	return p;
 }
 
-void symlink_check(const struct symlink_info *symlink)
+static void symlink_check(const struct symlink_info *symlink)
 {
 	char *path, buf[8192], *target;
 	struct stat st1, st2;
@@ -3080,10 +3080,13 @@ static int parse_opts(int argc, char * const argv[])
 			exit(EXIT_SUCCESS);
 
 		case 'h':
-		case '?':
 			fprintf(stderr, "%s\n\n", doc);
 			fprintf(stderr, "%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
+		case '?':
+			fprintf(stderr, "%s\n\n", doc);
+			fprintf(stderr, "%s\n", optionsstr);
+			exit(-1);
 		case ':':
 			return errmsg("parameter is missing");
 

@@ -316,28 +316,6 @@ int iniparser_getint(dictionary * d, const char * key, int notfound)
 
 /*-------------------------------------------------------------------------*/
 /**
-  @brief    Get the string associated to a key, convert to a double
-  @param    d Dictionary to search
-  @param    key Key string to look for
-  @param    notfound Value to return in case of error
-  @return   double
-
-  This function queries a dictionary for a key. A key as read from an
-  ini file is given as "section:key". If the key cannot be found,
-  the notfound value is returned.
- */
-/*--------------------------------------------------------------------------*/
-double iniparser_getdouble(dictionary * d, char * key, double notfound)
-{
-    char    *   str ;
-
-    str = iniparser_getstring(d, key, INI_INVALID_KEY);
-    if (str==INI_INVALID_KEY) return notfound ;
-    return atof(str);
-}
-
-/*-------------------------------------------------------------------------*/
-/**
   @brief    Get the string associated to a key, convert to a boolean
   @param    d Dictionary to search
   @param    key Key string to look for
@@ -407,24 +385,6 @@ int iniparser_find_entry(
         found = 1 ;
     }
     return found ;
-}
-
-/*-------------------------------------------------------------------------*/
-/**
-  @brief    Set an entry in a dictionary.
-  @param    ini     Dictionary to modify.
-  @param    entry   Entry to modify (entry name)
-  @param    val     New value to associate to the entry.
-  @return   int 0 if Ok, -1 otherwise.
-
-  If the given entry can be found in the dictionary, it is modified to
-  contain the provided value. If it cannot be found, -1 is returned.
-  It is Ok to set val to NULL.
- */
-/*--------------------------------------------------------------------------*/
-int iniparser_set(dictionary * ini, char * entry, char * val)
-{
-    return dictionary_set(ini, strlwc(entry), val) ;
 }
 
 /*-------------------------------------------------------------------------*/

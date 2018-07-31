@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4
 
-AM_CPPFLAGS = -D_GNU_SOURCE -I$(top_srcdir)/include
+AM_CPPFLAGS = $(WARN_CFLAGS) -D_GNU_SOURCE -std=gnu99 -I$(top_srcdir)/include
 
 if WITHOUT_XATTR
 AM_CPPFLAGS += -DWITHOUT_XATTR
@@ -8,10 +8,6 @@ endif
 
 if WITHOUT_LZO
 AM_CPPFLAGS += -DWITHOUT_LZO
-endif
-
-if HAVE_EXECINFO
-AM_CPPFLAGS += -DHAVE_EXECINFO
 endif
 
 sbin_PROGRAMS =
