@@ -1,6 +1,6 @@
 Source: mtd-utils
 Section: utils
-Priority: extra
+Priority: optional
 Maintainer: Riku Voipio <riku.voipio@linaro.org>
 Build-Depends: debhelper (>= 9), pkg-config, dh-autoreconf, zlib1g-dev, libacl1-dev, liblzo2-dev, uuid-dev
 Standards-Version: 3.9.8
