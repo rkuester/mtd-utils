@@ -1,10 +1,14 @@
-mtd-utils (1:2.0.1-2) UNRELEASED; urgency=medium
+mtd-utils (1:2.1.1-1) unstable; urgency=medium
 
+  [ Ondřej Nový ]
   * d/control: Deprecating priority extra as per policy 4.0.1
   * d/changelog: Remove trailing whitespaces
   * d/control: Set Vcs-* to salsa.debian.org
 
- -- Ondřej Nový <onovy@debian.org>  Mon, 01 Oct 2018 09:42:50 +0200
+  [ Riku Voipio ]
+  * New upstream release, closes: 902599, 902599, 921392
+
+ -- Riku Voipio <riku.voipio@linaro.org>  Mon, 26 Aug 2019 10:39:56 +0300
 
 mtd-utils (1:2.0.1-1) unstable; urgency=medium
 
