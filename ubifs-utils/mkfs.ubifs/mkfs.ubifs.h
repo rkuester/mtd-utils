@@ -46,6 +46,10 @@
 #include <uuid.h>
 #include <sys/file.h>
 
+#ifdef WITH_CRYPTO
+#include <openssl/rand.h>
+#endif
+
 #include <mtd/ubifs-media.h>
 
 /* common.h requires the PROGRAM_NAME macro */
@@ -72,6 +76,9 @@
 #endif
 #if MKFS_UBIFS_COMPR_ZLIB != UBIFS_COMPR_ZLIB
 #error MKFS_UBIFS_COMPR_ZLIB != UBIFS_COMPR_ZLIB
+#endif
+#if MKFS_UBIFS_COMPR_ZSTD != UBIFS_COMPR_ZSTD
+#error MKFS_UBIFS_COMPR_ZSTD != UBIFS_COMPR_ZSTD
 #endif
 
 extern int verbose;

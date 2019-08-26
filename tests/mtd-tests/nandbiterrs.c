@@ -85,7 +85,7 @@ static const struct option options[] = {
 	{ NULL, 0, NULL, 0 },
 };
 
-static void usage(int status)
+static NORETURN void usage(int status)
 {
 	fputs(
 	"Usage: "PROGRAM_NAME" [OPTIONS] <device>\n\n"
@@ -333,14 +333,13 @@ static int insert_biterror(void)
 	int bit, mask, byte;
 
 	for (byte = 0; byte < pagesize; ++byte) {
-		for (bit = 7, mask = 0x80; bit >= 0; bit--, mask>>=0) {
+		for (bit = 7, mask = 0x80; bit >= 0; bit--, mask >>= 1) {
 			if (wbuffer[byte] & mask) {
 				wbuffer[byte] &= ~mask;
 				printf("Inserted biterror @ %u/%u\n", byte, bit);
 				return 0;
 			}
 		}
-		++byte;
 	}
 	fputs("biterror: Failed to find a '1' bit\n", stderr);
 	return -1;

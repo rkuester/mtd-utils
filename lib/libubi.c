@@ -835,8 +835,7 @@ int ubi_detach(libubi_t desc, const char *node, const char *mtd_dev_node)
 int ubi_remove_dev(libubi_t desc, const char *node, int ubi_dev)
 {
 	int fd, ret;
-
-	desc = desc;
+	(void)desc;
 
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
@@ -993,14 +992,15 @@ int ubi_mkvol(libubi_t desc, const char *node, struct ubi_mkvol_request *req)
 	int fd, ret;
 	struct ubi_mkvol_req r;
 	size_t n;
+	(void)desc;
 
 	memset(&r, 0, sizeof(struct ubi_mkvol_req));
 
-	desc = desc;
 	r.vol_id = req->vol_id;
 	r.alignment = req->alignment;
 	r.bytes = req->bytes;
 	r.vol_type = req->vol_type;
+	r.flags = req->flags;
 
 	n = strlen(req->name);
 	if (n > UBI_MAX_VOLUME_NAME)
@@ -1009,7 +1009,6 @@ int ubi_mkvol(libubi_t desc, const char *node, struct ubi_mkvol_request *req)
 	strncpy(r.name, req->name, UBI_MAX_VOLUME_NAME + 1);
 	r.name_len = n;
 
-	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
 		return sys_errmsg("cannot open \"%s\"", node);
@@ -1029,8 +1028,8 @@ int ubi_mkvol(libubi_t desc, const char *node, struct ubi_mkvol_request *req)
 int ubi_rmvol(libubi_t desc, const char *node, int vol_id)
 {
 	int fd, ret;
+	(void)desc;
 
-	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
 		return sys_errmsg("cannot open \"%s\"", node);
@@ -1049,8 +1048,8 @@ int ubi_rmvol(libubi_t desc, const char *node, int vol_id)
 int ubi_rnvols(libubi_t desc, const char *node, struct ubi_rnvol_req *rnvol)
 {
 	int fd, ret;
+	(void)desc;
 
-	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
 		return -1;
@@ -1070,8 +1069,8 @@ int ubi_rsvol(libubi_t desc, const char *node, int vol_id, long long bytes)
 {
 	int fd, ret;
 	struct ubi_rsvol_req req;
+	(void)desc;
 
-	desc = desc;
 	fd = open(node, O_RDONLY);
 	if (fd == -1)
 		return sys_errmsg("cannot open \"%s\"", node);
@@ -1096,7 +1095,7 @@ int ubi_vol_block_remove(int fd)
 
 int ubi_update_start(libubi_t desc, int fd, long long bytes)
 {
-	desc = desc;
+	(void)desc;
 	if (ioctl(fd, UBI_IOCVOLUP, &bytes))
 		return -1;
 	return 0;
@@ -1105,8 +1104,8 @@ int ubi_update_start(libubi_t desc, int fd, long long bytes)
 int ubi_leb_change_start(libubi_t desc, int fd, int lnum, int bytes)
 {
 	struct ubi_leb_change_req req;
+	(void)desc;
 
-	desc = desc;
 	memset(&req, 0, sizeof(struct ubi_leb_change_req));
 	req.lnum = lnum;
 	req.bytes = bytes;
@@ -1242,11 +1241,8 @@ int ubi_get_vol_info1(libubi_t desc, int dev_num, int vol_id,
 	info->dev_num = dev_num;
 	info->vol_id = vol_id;
 
-	if (vol_get_major(lib, dev_num, vol_id, &info->major, &info->minor)) {
-		if (errno == ENOENT)
-			errno = ENODEV;
+	if (vol_get_major(lib, dev_num, vol_id, &info->major, &info->minor))
 		return -1;
-	}
 
 	ret = vol_read_data(lib->vol_type, dev_num, vol_id, buf, 50);
 	if (ret < 0)

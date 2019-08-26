@@ -58,6 +58,7 @@ io_basic
 io_paral
 io_read
 io_update
+lsmtd
 makefiles
 mkfs.ubifs
 mkvol_bad
@@ -127,6 +128,9 @@ tests/ubi-tests/ubi-stress-test.sh
 /include/config.h
 /include/config.h.in
 /include/stamp-h1
+test-driver
+*.log
+*.trs
 
 #
 # Top-level generic files
@@ -141,6 +145,8 @@ tests/ubi-tests/ubi-stress-test.sh
 patches-*
 *.patch
 
-# cscope files
+# cscope and ctag files
 cscope.*
 ncscope.*
+/TAGS
+/tags

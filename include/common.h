@@ -65,26 +65,18 @@ extern "C" {
 	(_x > _y) ? _x : _y; \
 })
 
+/*
+ * This looks more complex than it should be. But we need to
+ * get the type for the ~ right in round_down (it needs to be
+ * as wide as the result!), and we want to evaluate the macro
+ * arguments just once each.
+ */
+#define __round_mask(x, y) ((__typeof__(x))((y)-1))
+#define round_up(x, y) ((((x)-1) | __round_mask(x, y))+1)
+#define round_down(x, y) ((x) & ~__round_mask(x, y))
+
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
-#endif
-
-/* define a print format specifier for off_t */
-#if (SIZEOF_OFF_T >= 8)
-#define PRIxoff_t PRIx64
-#define PRIdoff_t PRId64
-#else
-#define PRIxoff_t "l"PRIx32
-#define PRIdoff_t "l"PRId32
-#endif
-
-/* define a print format specifier for loff_t */
-#if (SIZEOF_LOFF_T >= 8)
-#define PRIxloff_t PRIx64
-#define PRIdloff_t PRId64
-#else
-#define PRIxloff_t "l"PRIx32
-#define PRIdloff_t "l"PRId32
 #endif
 
 /* Verbose messages */
@@ -129,20 +121,26 @@ extern "C" {
 	fprintf(stderr, "%s: warning!: " fmt "\n", PROGRAM_NAME, ##__VA_ARGS__); \
 } while(0)
 
+/* for tagging functions that always exit */
+#if defined(__GNUC__) || defined(__clang__)
+	#define NORETURN __attribute__((noreturn))
+#else
+	#define NORETURN
+#endif
+
 /**
  * prompt the user for confirmation
  */
 static inline bool prompt(const char *msg, bool def)
 {
-	char *line = NULL;
-	size_t len;
 	bool ret = def;
+	char line[64];
 
 	do {
 		normsg_cont("%s (%c/%c) ", msg, def ? 'Y' : 'y', def ? 'n' : 'N');
 		fflush(stdout);
 
-		while (getline(&line, &len, stdin) == -1) {
+		if (fgets(line, sizeof(line), stdin) == NULL) {
 			printf("failed to read prompt; assuming '%s'\n",
 				def ? "yes" : "no");
 			break;
@@ -161,8 +159,6 @@ static inline bool prompt(const char *msg, bool def)
 		}
 		break;
 	} while (1);
-
-	free(line);
 
 	return ret;
 }

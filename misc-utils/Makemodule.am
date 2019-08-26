@@ -46,9 +46,22 @@ MISC_EXTRA = \
 	misc-utils/MAKEDEV
 
 MISC_HEADER = \
-	misc-utils/mcast_image.h
+	misc-utils/mcast_image.h \
+	misc-utils/lsmtd.h
+
+MISC_MAN =
+
+if BUILD_LSMTD
+lsmtd_SOURCES = misc-utils/lsmtd.c misc-utils/lsmtd_scan.c
+lsmtd_LDADD = libmtd.a libubi.a
+lsmtd_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/misc-utils
+
+MISC_BINS += lsmtd
+MISC_MAN += misc-utils/lsmtd.8
+endif
 
 EXTRA_DIST += $(MISC_HEADER) $(MISC_EXTRA) $(MISC_SH)
 
+dist_man8_MANS += $(MISC_MAN)
 sbin_PROGRAMS += $(MISC_BINS)
 sbin_SCRIPTS += $(MISC_SH)

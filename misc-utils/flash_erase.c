@@ -53,8 +53,8 @@ int target_endian = __BYTE_ORDER;
 static void show_progress(struct mtd_dev_info *mtd, off_t start, int eb,
 			  int eb_start, int eb_cnt)
 {
-	bareverbose(!quiet, "\rErasing %d Kibyte @ %"PRIxoff_t" -- %2i %% complete ",
-		mtd->eb_size / 1024, start, ((eb - eb_start) * 100) / eb_cnt);
+	bareverbose(!quiet, "\rErasing %d Kibyte @ %llx -- %2i %% complete ",
+		mtd->eb_size / 1024, (unsigned long long)start, ((eb - eb_start) * 100) / eb_cnt);
 	fflush(stdout);
 }
 
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
 {
 	libmtd_t mtd_desc;
 	struct mtd_dev_info mtd;
-	int fd;
+	int fd, cmlen = 8;
 	unsigned long long start;
 	unsigned int eb, eb_start, eb_cnt;
 	bool isNAND;
@@ -155,8 +155,10 @@ int main(int argc, char *argv[])
 	default:
 	case 0:
 		errmsg("no MTD device specified");
+		/* fall-through */
 	case 1:
 		errmsg("no start erase block specified");
+		/* fall-through */
 	case 2:
 		errmsg("no erase block count specified");
 		error = 1;
@@ -188,10 +190,11 @@ int main(int argc, char *argv[])
 	if (jffs2) {
 		cleanmarker.magic = cpu_to_je16 (JFFS2_MAGIC_BITMASK);
 		cleanmarker.nodetype = cpu_to_je16 (JFFS2_NODETYPE_CLEANMARKER);
-		if (!isNAND)
+		if (!isNAND) {
 			cleanmarker.totlen = cpu_to_je32(sizeof(cleanmarker));
-		else {
+		} else {
 			cleanmarker.totlen = cpu_to_je32(8);
+			cmlen = min(mtd.oobavail, 8);
 		}
 		cleanmarker.hdr_crc = cpu_to_je32(mtd_crc32(0, &cleanmarker, sizeof(cleanmarker) - 4));
 	}
@@ -208,7 +211,7 @@ int main(int argc, char *argv[])
 		if (!noskipbad) {
 			int ret = mtd_is_bad(&mtd, fd, eb);
 			if (ret > 0) {
-				verbose(!quiet, "Skipping bad block at %08"PRIxoff_t, offset);
+				verbose(!quiet, "Skipping bad block at %08llx", (unsigned long long)offset);
 				continue;
 			} else if (ret < 0) {
 				if (errno == EOPNOTSUPP) {
@@ -240,7 +243,7 @@ int main(int argc, char *argv[])
 
 		/* write cleanmarker */
 		if (isNAND) {
-			if (mtd_write(mtd_desc, &mtd, fd, eb, 0, NULL, 0, &cleanmarker, 0,
+			if (mtd_write(mtd_desc, &mtd, fd, eb, 0, NULL, 0, &cleanmarker, cmlen,
 					MTD_OPS_AUTO_OOB) != 0) {
 				sys_errmsg("%s: MTD writeoob failure", mtd_device);
 				continue;

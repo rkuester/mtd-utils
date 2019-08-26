@@ -422,7 +422,7 @@ static int type_str2int(const char *str)
 }
 
 /**
- * dev_node2num - find UBI device number by its character device node.
+ * dev_node2num - find MTD device number by its character device node.
  * @lib: MTD library descriptor
  * @node: name of the MTD device node
  * @mtd_num: MTD device number is returned here
@@ -614,6 +614,10 @@ libmtd_t libmtd_open(void)
 	if (!lib->mtd_oob_size)
 		goto out_error;
 
+	lib->mtd_oobavail = mkpath(lib->mtd, MTD_OOBAVAIL);
+	if (!lib->mtd_oobavail)
+		goto out_error;
+
 	lib->mtd_region_cnt = mkpath(lib->mtd, MTD_REGION_CNT);
 	if (!lib->mtd_region_cnt)
 		goto out_error;
@@ -637,6 +641,7 @@ void libmtd_close(libmtd_t desc)
 	free(lib->mtd_flags);
 	free(lib->mtd_region_cnt);
 	free(lib->mtd_oob_size);
+	free(lib->mtd_oobavail);
 	free(lib->mtd_subpage_size);
 	free(lib->mtd_min_io_size);
 	free(lib->mtd_size);
@@ -769,6 +774,15 @@ int mtd_get_dev_info1(libmtd_t desc, int mtd_num, struct mtd_dev_info *mtd)
 		return -1;
 	if (dev_read_pos_int(lib->mtd_oob_size, mtd_num, &mtd->oob_size))
 		return -1;
+	if (dev_read_pos_int(lib->mtd_oobavail, mtd_num, &mtd->oobavail)) {
+		/*
+		 * Fail to access oobavail sysfs file,
+		 * try ioctl ECCGETLAYOUT. */
+		mtd->oobavail = legacy_get_mtd_oobavail1(mtd_num);
+		/* Set 0 as default if can not get valid ecc layout */
+		if (mtd->oobavail < 0)
+			mtd->oobavail = 0;
+	}
 	if (dev_read_pos_int(lib->mtd_region_cnt, mtd_num, &mtd->region_cnt))
 		return -1;
 	if (dev_read_hex_int(lib->mtd_flags, mtd_num, &ret))
@@ -1079,8 +1093,8 @@ int mtd_read(const struct mtd_dev_info *mtd, int fd, int eb, int offs,
 	/* Seek to the beginning of the eraseblock */
 	seek = (off_t)eb * mtd->eb_size + offs;
 	if (lseek(fd, seek, SEEK_SET) != seek)
-		return sys_errmsg("cannot seek mtd%d to offset %"PRIdoff_t,
-				  mtd->mtd_num, seek);
+		return sys_errmsg("cannot seek mtd%d to offset %lld",
+				  mtd->mtd_num, (long long)seek);
 
 	while (rd < len) {
 		ret = read(fd, buf + rd, len - rd);
@@ -1188,8 +1202,8 @@ int mtd_write(libmtd_t desc, const struct mtd_dev_info *mtd, int fd, int eb,
 	if (data) {
 		/* Seek to the beginning of the eraseblock */
 		if (lseek(fd, seek, SEEK_SET) != seek)
-			return sys_errmsg("cannot seek mtd%d to offset %"PRIdoff_t,
-					mtd->mtd_num, seek);
+			return sys_errmsg("cannot seek mtd%d to offset %lld",
+					mtd->mtd_num, (long long)seek);
 		ret = write(fd, data, len);
 		if (ret != len)
 			return sys_errmsg("cannot write %d bytes to mtd%d "

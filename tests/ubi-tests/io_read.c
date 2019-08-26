@@ -74,6 +74,7 @@ static int test_static(void)
 	req.bytes = dev_info.avail_bytes;
 	req.vol_type = UBI_STATIC_VOLUME;
 	req.name = name;
+	req.flags = 0;
 
 	if (ubi_mkvol(libubi, node, &req)) {
 		failed("ubi_mkvol");
@@ -227,6 +228,10 @@ static int test_read2(const struct ubi_vol_info *vol_info, int len)
 				  vol_info->data_bytes);
 
 	for (i = 0; i < sizeof(offsets)/sizeof(off_t); i++) {
+		/* Filter invalid offset value */
+		if (offsets[i] < 0 || offsets[i] > vol_info->data_bytes)
+			continue;
+
 		if (test_read3(vol_info, len, offsets[i])) {
 			errorm("offset = %d", offsets[i]);
 			return -1;
@@ -329,6 +334,7 @@ static int test_read(int type)
 		req.vol_id = UBI_VOL_NUM_AUTO;
 		req.vol_type = type;
 		req.name = name;
+		req.flags = 0;
 
 		req.alignment = alignments[i];
 		req.alignment -= req.alignment % dev_info.min_io_size;

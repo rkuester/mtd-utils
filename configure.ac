@@ -1,6 +1,6 @@
 AC_PREREQ([2.60])
 
-m4_define([RELEASE], 2.0.1)
+m4_define([RELEASE], 2.1.1)
 
 AC_INIT([mtd-utils], [RELEASE], [linux-mtd@lists.infradead.org], mtd-utils)
 
@@ -24,6 +24,15 @@ AC_DISABLE_STATIC
 AC_PROG_CC
 AC_PROG_INSTALL
 
+
+m4_ifndef([PKG_PROG_PKG_CONFIG],
+  [m4_fatal([Could not locate the pkg-config autoconf
+    macros. These are usually located in /usr/share/aclocal/pkg.m4.
+    If your macros are in a different location, try setting the
+    environment variable AL_OPTS="-I/other/macro/dir" before running
+    ./autogen.sh or autoreconf again. Make sure pkg-config is installed.])])
+PKG_PROG_PKG_CONFIG
+
 ## compiler warnings
 UL_WARN_ADD([-Wall])
 UL_WARN_ADD([-Wextra])
@@ -40,6 +49,10 @@ UL_WARN_ADD([-Wunused-but-set-variable])
 UL_WARN_ADD([-Wunused-parameter])
 UL_WARN_ADD([-Wunused-result])
 UL_WARN_ADD([-Wunused-variable])
+UL_WARN_ADD([-Wduplicated-cond])
+UL_WARN_ADD([-Wduplicated-branches])
+UL_WARN_ADD([-Wrestrict])
+UL_WARN_ADD([-Wnull-dereference])
 
 UL_WARN_ADD([-Wno-shadow])
 UL_WARN_ADD([-Wno-sign-compare])
@@ -53,9 +66,11 @@ need_pthread="no"
 need_uuid="no"
 need_zlib="no"
 need_lzo="no"
+need_zstd="no"
 need_xattr="no"
 need_cmocka="no"
-
+need_selinux="no"
+need_openssl="no"
 
 AM_COND_IF([UNIT_TESTS], [
 	need_cmocka="yes"
@@ -92,6 +107,15 @@ AM_COND_IF([INSTALL_TESTS],
 	[AC_SUBST(testbindir, ["\".\""])])
 
 
+AC_ARG_ENABLE([lsmtd],
+	[AS_HELP_STRING([--disable-lsmtd], [Do not build the lsmtd program])],
+	[case "${enableval}" in
+	yes) AM_CONDITIONAL([BUILD_LSMTD], [true]) ;;
+	no)  AM_CONDITIONAL([BUILD_LSMTD], [false]) ;;
+	*) AC_MSG_ERROR([bad value ${enableval} for --disable-lsmtd]) ;;
+	esac],
+	[AM_CONDITIONAL([BUILD_LSMTD], [true])])
+
 AC_ARG_WITH([jffs],
 	[AS_HELP_STRING([--without-jffs], [Disable jffsX utilities])],
 	[case "${withval}" in
@@ -115,6 +139,8 @@ AM_COND_IF([BUILD_UBIFS], [
 	need_xattr="yes"
 	need_zlib="yes"
 	need_lzo="yes"
+	need_zstd="yes"
+	need_openssl="yes"
 ])
 
 AM_COND_IF([BUILD_JFFSX], [
@@ -140,6 +166,32 @@ AC_ARG_WITH([lzo],
 	*) AC_MSG_ERROR([bad value ${withval} for --without-lzo]) ;;
 	esac])
 
+AC_ARG_WITH([zstd],
+	[AS_HELP_STRING([--without-zstd], [Disable support for ZSTD compression])],
+	[case "${withval}" in
+	yes) ;;
+	no) need_zstd="no" ;;
+	*) AC_MSG_ERROR([bad value ${withval} for --without-zstd]) ;;
+	esac])
+
+AC_ARG_WITH([selinux],
+	[AS_HELP_STRING([--with-selinux],
+		[Enable support for selinux extended attributes])],
+	[case "${withval}" in
+	yes) need_selinux="yes";;
+	no) ;;
+	*) AC_MSG_ERROR([bad value ${withval} for --with-selinux]) ;;
+	esac])
+
+AC_ARG_WITH([crypto],
+	[AS_HELP_STRING([--without-crypto],
+		[Disable support for UBIFS crypto features])],
+	[case "${withval}" in
+	yes) ;;
+	no) need_openssl="no";;
+	*) AC_MSG_ERROR([bad value ${withval} for --without-crypto]) ;;
+	esac])
+
 ##### search for dependencies #####
 
 clock_gettime_missing="no"
@@ -147,11 +199,18 @@ pthread_missing="no"
 uuid_missing="no"
 zlib_missing="no"
 lzo_missing="no"
+zstd_missing="no"
 xattr_missing="no"
 cmocka_missing="no"
+selinux_missing="no"
+openssl_missing="no"
 
 if test "x$need_zlib" = "xyes"; then
 	PKG_CHECK_MODULES(ZLIB, [zlib], [], [zlib_missing="yes"])
+fi
+
+if test "x$need_selinux" = "xyes"; then
+	PKG_CHECK_MODULES(LIBSELINUX, [libselinux], [], [selinux_missing="yes"])
 fi
 
 if test "x$need_uuid" = "xyes"; then
@@ -177,9 +236,23 @@ if test "x$need_lzo" = "xyes"; then
 	)
 fi
 
+if test "x$need_zstd" = "xyes"; then
+	PKG_CHECK_MODULES([ZSTD], [libzstd],, zstd_missing="yes")
+fi
+
 if test "x$need_xattr" = "xyes"; then
 	AC_CHECK_HEADERS([sys/xattr.h], [], [xattr_missing="yes"])
 	AC_CHECK_HEADERS([sys/acl.h], [], [xattr_missing="yes"])
+fi
+
+if test "x$need_selinux" = "xyes"; then
+	AC_CHECK_HEADERS([selinux/selinux.h], [], [selinux_missing="yes"])
+	AC_CHECK_HEADERS([selinux/label.h], [], [selinux_missing="yes"])
+fi
+
+if test "x$need_openssl" = "xyes"; then
+	AC_CHECK_HEADER(openssl/rand.h)
+	PKG_CHECK_MODULES(OPENSSL, [openssl], [], [openssl_missing="yes"])
 fi
 
 if test "x$need_cmocka" = "xyes"; then
@@ -225,10 +298,29 @@ if test "x$lzo_missing" = "xyes"; then
 	dep_missing="yes"
 fi
 
+if test "x$zstd_missing" = "xyes"; then
+	AC_MSG_WARN([cannot find ZSTD library required for mkfs program])
+	AC_MSG_NOTICE([mtd-utils can optionally be built without mkfs.ubifs])
+	AC_MSG_NOTICE([mtd-utils can optionally be built without ZSTD support])
+	dep_missing="yes"
+fi
+
 if test "x$xattr_missing" = "xyes"; then
 	AC_MSG_WARN([cannot find headers for extended attributes])
 	AC_MSG_WARN([disabling XATTR support])
 	need_xattr="no"
+fi
+
+if test "x$selinux_missing" = "xyes"; then
+	AC_MSG_WARN([cannot find headers for selinux library])
+	AC_MSG_WARN([disabling SELINUX support])
+	need_selinux="no"
+fi
+
+if test "x$openssl_missing" = "xyes"; then
+	AC_MSG_WARN([cannot find headers for OpenSSL library])
+	AC_MSG_WARN([disabling OpenSSL support])
+	need_openssl="no"
 fi
 
 if test "x$cmocka_missing" = "xyes"; then
@@ -244,7 +336,10 @@ fi
 ##### generate output #####
 
 AM_CONDITIONAL([WITHOUT_LZO], [test "x$need_lzo" != "xyes"])
+AM_CONDITIONAL([WITHOUT_ZSTD], [test "x$need_zstd" != "xyes"])
 AM_CONDITIONAL([WITHOUT_XATTR], [test "x$need_xattr" != "xyes"])
+AM_CONDITIONAL([WITH_SELINUX], [test "x$need_selinux" == "xyes"])
+AM_CONDITIONAL([WITH_CRYPTO], [test "x$need_openssl" == "xyes"])
 
 AC_CHECK_SIZEOF([off_t])
 AC_CHECK_SIZEOF([loff_t])

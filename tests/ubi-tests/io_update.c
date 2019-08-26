@@ -147,7 +147,7 @@ static int test_update1(struct ubi_vol_info *vol_info, int leb_change)
 			rnd_len = rand() % (l + 1);
 			for (n = 0; n < rnd_len; n++)
 				buf[off + n] = (unsigned char)rand();
-				memset(buf + off + rnd_len, 0xFF, l - rnd_len);
+			memset(buf + off + rnd_len, 0xFF, l - rnd_len);
 
 			/*
 			 * Deliberately pass len instead of l (len may be
@@ -233,6 +233,7 @@ static int test_update(int type)
 		req.vol_id = UBI_VOL_NUM_AUTO;
 		req.vol_type = type;
 		req.name = name;
+		req.flags = 0;
 
 		req.alignment = alignments[i];
 		req.alignment -= req.alignment % dev_info.min_io_size;

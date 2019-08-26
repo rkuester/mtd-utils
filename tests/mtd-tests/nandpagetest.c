@@ -58,7 +58,7 @@ static const struct option options[] = {
 	{ NULL, 0, NULL, 0 },
 };
 
-static void usage(int status)
+static NORETURN void usage(int status)
 {
 	fputs(
 	"Usage: "PROGRAM_NAME" [OPTIONS] <device>\n\n"
@@ -143,7 +143,7 @@ static void process_options(int argc, char **argv)
 
 	if (optind < argc)
 		usage(EXIT_FAILURE);
-	if (ebcnt < 2)
+	if (ebcnt >= 0 && ebcnt < 2)
 		errmsg_die("Cannot run with less than two blocks.");
 	if (peb < 0)
 		peb = 0;
@@ -232,8 +232,8 @@ static int verify_eraseblock(int ebnum)
 			return err;
 
 		if (lseek(fd, addr, SEEK_SET) != addr) {
-			fprintf(stderr, "cannot seek mtd%d to offset %"PRIdloff_t,
-	 				mtd.mtd_num, addr);
+			fprintf(stderr, "cannot seek mtd%d to offset %lld",
+	 				mtd.mtd_num, (long long)addr);
 			return -1;
 		}
 
@@ -551,8 +551,12 @@ int main(int argc, char **argv)
 	}
 	printf("verified %u eraseblocks\n", i);
 
-	if (crosstest())
-		goto out;
+	if (ebcnt > 1) {
+		if (crosstest())
+			goto out;
+	} else {
+		printf("skipping erasecrosstest, 2 erase blocks needed\n");
+	}
 
 	if (erasecrosstest())
 		goto out;

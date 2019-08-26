@@ -385,9 +385,21 @@ static int read_section(const struct ubigen_info *ui, const char *sname,
 	sprintf(buf, "%s:vol_flags", sname);
 	p = iniparser_getstring(args.dict, buf, NULL);
 	if (p) {
+		/*
+		 * For now, the flag can be either autoresize or skip-check, as
+		 * skip-check is reserved for static volumes and autoresize for
+		 * such a volume makes no sense.
+		 * Once we add another flag that isn't incompatible with each
+		 * and every existing flag, we'll have to implement a solution
+		 * that allows multiple flags to be set at the same time in
+		 * vol_flags setting of the section.
+		 */
 		if (!strcmp(p, "autoresize")) {
 			verbose(args.verbose, "autoresize flags found");
 			vi->flags |= UBI_VTBL_AUTORESIZE_FLG;
+		} else if (!strcmp(p, "skip-check")) {
+			verbose(args.verbose, "skip-check flag found");
+			vi->flags |= UBI_VTBL_SKIP_CRC_CHECK_FLG;
 		} else {
 			return errmsg("unknown flags \"%s\" in section \"%s\"",
 				      p, sname);
@@ -430,11 +442,14 @@ int main(int argc, char * const argv[])
 	verbose(args.verbose, "UBI image sequence number: %u", ui.image_seq);
 
 	vtbl = ubigen_create_empty_vtbl(&ui);
-	if (!vtbl)
+	if (!vtbl) {
+		err = -1;
 		goto out;
+	}
 
 	args.dict = iniparser_load(args.f_in);
 	if (!args.dict) {
+		err = -1;
 		errmsg("cannot load the input ini file \"%s\"", args.f_in);
 		goto out_vtbl;
 	}
@@ -444,17 +459,20 @@ int main(int argc, char * const argv[])
 	/* Each section describes one volume */
 	sects = iniparser_getnsec(args.dict);
 	if (sects == -1) {
+		err = -1;
 		errmsg("ini-file parsing error (iniparser_getnsec)");
 		goto out_dict;
 	}
 
 	verbose(args.verbose, "count of sections: %d", sects);
 	if (sects == 0) {
+		err = -1;
 		errmsg("no sections found the ini-file \"%s\"", args.f_in);
 		goto out_dict;
 	}
 
 	if (sects > ui.max_volumes) {
+		err = -1;
 		errmsg("too many sections (%d) in the ini-file \"%s\"",
 		       sects, args.f_in);
 		normsg("each section corresponds to an UBI volume, maximum "
@@ -464,6 +482,7 @@ int main(int argc, char * const argv[])
 
 	vi = calloc(sizeof(struct ubigen_vol_info), sects);
 	if (!vi) {
+		err = -1;
 		errmsg("cannot allocate memory");
 		goto out_dict;
 	}
@@ -522,6 +541,10 @@ int main(int argc, char * const argv[])
 				goto out_free;
 			}
 		}
+
+		if (vi[i].flags & UBI_VTBL_SKIP_CRC_CHECK_FLG &&
+		    vi[i].type != UBI_VID_STATIC)
+			return errmsg("skip-check is only valid for static volumes");
 
 		if (vi[i].flags & UBI_VTBL_AUTORESIZE_FLG) {
 			if (autoresize_was_already)

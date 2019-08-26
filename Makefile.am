@@ -10,8 +10,21 @@ if WITHOUT_LZO
 AM_CPPFLAGS += -DWITHOUT_LZO
 endif
 
+if WITHOUT_ZSTD
+AM_CPPFLAGS += -DWITHOUT_ZSTD
+endif
+
+if WITH_SELINUX
+AM_CPPFLAGS += -DWITH_SELINUX
+endif
+
+if WITH_CRYPTO
+AM_CPPFLAGS += -DWITH_CRYPTO
+endif
+
 sbin_PROGRAMS =
 sbin_SCRIPTS =
+check_PROGRAMS =
 noinst_LIBRARIES =
 noinst_PROGRAMS =
 noinst_SCRIPTS =
@@ -20,6 +33,7 @@ pkglibexec_SCRIPTS =
 dist_man1_MANS =
 dist_man8_MANS =
 
+TESTS =
 EXTRA_DIST =
 
 GLOBAL_HEADER = \

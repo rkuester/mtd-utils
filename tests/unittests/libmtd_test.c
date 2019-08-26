@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <stdarg.h>
 #include <setjmp.h>
 #include <stddef.h>
@@ -42,6 +43,7 @@ static void test_libmtd_open(void **state)
 	assert_string_equal(lib->mtd_min_io_size, SYSFS_ROOT "/class/mtd/mtd%d/writesize");
 	assert_string_equal(lib->mtd_subpage_size, SYSFS_ROOT "/class/mtd/mtd%d/subpagesize");
 	assert_string_equal(lib->mtd_oob_size, SYSFS_ROOT "/class/mtd/mtd%d/oobsize");
+	assert_string_equal(lib->mtd_oobavail, SYSFS_ROOT "/class/mtd/mtd%d/oobavail");
 	assert_string_equal(lib->mtd_region_cnt, SYSFS_ROOT "/class/mtd/mtd%d/numeraseregions");
 	assert_string_equal(lib->mtd_flags, SYSFS_ROOT "/class/mtd/mtd%d/flags");
 
@@ -53,7 +55,6 @@ static void test_mtd_dev_present(void **state)
 {
 	int ret;
 	libmtd_t lib = mock_libmtd_open();
-	expect_stat(SYSFS_ROOT "/class/mtd/mtd0", 0);
 	ret = mtd_dev_present(lib, 0);
 	assert_int_equal(ret, 1);
 	libmtd_close(lib);
@@ -70,7 +71,7 @@ static void test_mtd_mark_bad(void **state)
 	mtd.eb_cnt = 1024;
 	mtd.eb_size = 128;
 	seek = (loff_t)eb * mtd.eb_size;
-	expect_ioctl(MEMSETBADBLOCK, 0, &seek, sizeof(seek));
+	expect_ioctl(MEMSETBADBLOCK, 0, &seek);
 	int r = mtd_mark_bad(&mtd, 4, eb);
 	assert_int_equal(r, 0);
 
@@ -87,7 +88,7 @@ static void test_mtd_is_bad(void **state)
 	mtd.eb_cnt = 1024;
 	mtd.eb_size = 128;
 	seek = (loff_t)eb * mtd.eb_size;
-	expect_ioctl(MEMGETBADBLOCK, 0, &seek, sizeof(seek));
+	expect_ioctl(MEMGETBADBLOCK, 0, &seek);
 	int r = mtd_is_bad(&mtd, 4, eb);
 	assert_int_equal(r, 0);
 
@@ -106,7 +107,7 @@ static void test_mtd_lock(void **state)
 	memset(&ei, 0, sizeof(ei));
 	ei.start = eb * mtd.eb_size;
 	ei.length = mtd.eb_size;
-	expect_ioctl(MEMLOCK, 0, &ei, sizeof(ei));
+	expect_ioctl(MEMLOCK, 0, &ei);
 	int r = mtd_lock(&mtd, 4, eb);
 	assert_int_equal(r, 0);
 
@@ -125,7 +126,7 @@ static void test_mtd_unlock(void **state)
 	memset(&ei, 0, sizeof(ei));
 	ei.start = eb * mtd.eb_size;
 	ei.length = mtd.eb_size;
-	expect_ioctl(MEMUNLOCK, 0, &ei, sizeof(ei));
+	expect_ioctl(MEMUNLOCK, 0, &ei);
 	int r = mtd_unlock(&mtd, 4, eb);
 	assert_int_equal(r, 0);
 
@@ -144,7 +145,7 @@ static void test_mtd_is_locked(void **state)
 	memset(&ei, 0, sizeof(ei));
 	ei.start = eb * mtd.eb_size;
 	ei.length = mtd.eb_size;
-	expect_ioctl(MEMISLOCKED, 0, &ei, sizeof(ei));
+	expect_ioctl(MEMISLOCKED, 0, &ei);
 	int r = mtd_is_locked(&mtd, 4, eb);
 	assert_int_equal(r, 0);
 
@@ -160,7 +161,7 @@ static void test_mtd_regioninfo(void **state)
 	int mock_fd = 4;
 	int regidx = 0xAA;
 	rr.regionindex = regidx;
-	expect_ioctl(MEMGETREGIONINFO, 0, &rr, sizeof(rr));
+	expect_ioctl(MEMGETREGIONINFO, 0, &rr);
 	int r = mtd_regioninfo(mock_fd, regidx, &req);
 	assert_int_equal(r, 0);
 
@@ -187,12 +188,12 @@ static void test_mtd_erase_multi(void **state)
 	ei.length = ei64.length;
 	/* non offs64 first */
 	lib->offs64_ioctls = OFFS64_IOCTLS_NOT_SUPPORTED;
-	expect_ioctl(MEMERASE, 0, &ei, sizeof(ei));
+	expect_ioctl(MEMERASE, 0, &ei);
 	int r = mtd_erase_multi(lib, &mtd, 4, eb, blocks);
 	assert_int_equal(r, 0);
 
 	lib->offs64_ioctls = OFFS64_IOCTLS_SUPPORTED;
-	expect_ioctl(MEMERASE64, 0, &ei64, sizeof(ei64));
+	expect_ioctl(MEMERASE64, 0, &ei64);
 	r = mtd_erase_multi(lib, &mtd, 4, eb, blocks);
 	assert_int_equal(r, 0);
 
@@ -224,12 +225,12 @@ static void test_mtd_erase(void **state)
 	ei.length = ei64.length;
 	/* non offs64 first */
 	lib->offs64_ioctls = OFFS64_IOCTLS_NOT_SUPPORTED;
-	expect_ioctl(MEMERASE, 0, &ei, sizeof(ei));
+	expect_ioctl(MEMERASE, 0, &ei);
 	int r = mtd_erase(lib, &mtd, 4, eb);
 	assert_int_equal(r, 0);
 
 	lib->offs64_ioctls = OFFS64_IOCTLS_SUPPORTED;
-	expect_ioctl(MEMERASE64, 0, &ei64, sizeof(ei64));
+	expect_ioctl(MEMERASE64, 0, &ei64);
 	r = mtd_erase(lib, &mtd, 4, eb);
 	assert_int_equal(r, 0);
 
@@ -314,7 +315,7 @@ static void test_mtd_write_withoob(void **state)
 	req.usr_data = (uint64_t)(unsigned long)buf;
 	req.usr_oob = (uint64_t)(unsigned long)oob_data;
 	req.mode = mode;
-	expect_ioctl(MEMWRITE, 0, &req, sizeof(req));
+	expect_ioctl(MEMWRITE, 0, &req);
 	int r = mtd_write(lib, &mtd, mock_fd, eb, offs, buf, len, oob_data, oob_len, mode);
 	assert_int_equal(r, 0);
 
@@ -348,12 +349,12 @@ static void test_mtd_read_oob(void **state)
 	oob.ptr = buf;
 
 	lib->offs64_ioctls = OFFS64_IOCTLS_NOT_SUPPORTED;
-	expect_ioctl(MEMREADOOB, 0, &oob, sizeof(oob));
+	expect_ioctl(MEMREADOOB, 0, &oob);
 	int r = mtd_read_oob(lib, &mtd, mock_fd, start, length, buf);
 	assert_int_equal(r, 0);
 
 	lib->offs64_ioctls = OFFS64_IOCTLS_SUPPORTED;
-	expect_ioctl(MEMREADOOB64, 0, &oob64, sizeof(oob64));
+	expect_ioctl(MEMREADOOB64, 0, &oob64);
 	r = mtd_read_oob(lib, &mtd, mock_fd, start, length, buf);
 	assert_int_equal(r, 0);
 
@@ -388,12 +389,12 @@ static void test_mtd_write_oob(void **state)
 	oob.ptr = buf;
 
 	lib->offs64_ioctls = OFFS64_IOCTLS_NOT_SUPPORTED;
-	expect_ioctl(MEMWRITEOOB, 0, &oob, sizeof(oob));
+	expect_ioctl(MEMWRITEOOB, 0, &oob);
 	int r = mtd_write_oob(lib, &mtd, mock_fd, start, length, buf);
 	assert_int_equal(r, 0);
 
 	lib->offs64_ioctls = OFFS64_IOCTLS_SUPPORTED;
-	expect_ioctl(MEMWRITEOOB64, 0, &oob64, sizeof(oob64));
+	expect_ioctl(MEMWRITEOOB64, 0, &oob64);
 	r = mtd_write_oob(lib, &mtd, mock_fd, start, length, buf);
 	assert_int_equal(r, 0);
 
@@ -423,7 +424,6 @@ static void test_mtd_get_dev_info1(void **state)
 	struct mtd_dev_info info;
 	int dev_num = 0;
 	memset(&info, 0, sizeof(info));
-	expect_stat(SYSFS_ROOT "/class/mtd/mtd0", 0);
 	expect_open(SYSFS_ROOT "/class/mtd/mtd0/dev", O_RDONLY, 0);
 	expect_read_real(50,0);
 	expect_read(1,0);
@@ -449,6 +449,9 @@ static void test_mtd_get_dev_info1(void **state)
 	expect_read_real(50,0);
 	expect_close(3,1);
 	expect_open(SYSFS_ROOT "/class/mtd/mtd0/oobsize", O_RDONLY, 0);
+	expect_read_real(50,0);
+	expect_close(3,1);
+	expect_open(SYSFS_ROOT "/class/mtd/mtd0/oobavail", O_RDONLY, 0);
 	expect_read_real(50,0);
 	expect_close(3,1);
 	expect_open(SYSFS_ROOT "/class/mtd/mtd0/numeraseregions", O_RDONLY, 0);

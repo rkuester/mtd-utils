@@ -897,8 +897,8 @@ static ssize_t file_write_data(struct file_info *file, int fd, off_t offset,
 	remains = size;
 	actual = 0;
 	written = IO_BUFFER_SIZE;
-	v("write %zd bytes, offset %"PRIdoff_t", file %s",
-	  size, offset, get_file_name(file));
+	v("write %zd bytes, offset %lld, file %s",
+	  size, (long long)offset, get_file_name(file));
 	while (remains) {
 		/* Fill up buffer with random data */
 		if (written < IO_BUFFER_SIZE) {
@@ -1164,7 +1164,7 @@ static int file_mmap_write(struct file_info *file)
 	}
 	r = random_no(write_cnt);
 	w = file->writes;
-	for (i = 0; w && w->next && i < r; i++)
+	for (i = 0; i < r; i++)
 		w = w->next;
 
 	offs = (w->offset / fsinfo.page_size) * fsinfo.page_size;

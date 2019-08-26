@@ -65,8 +65,7 @@ static inline uint32_t key_r5_hash(const char *s, int len)
 	uint32_t a = 0;
 	const signed char *str = (const signed char *)s;
 
-	len = len;
-	while (*str) {
+	while (len--) {
 		a += *str << 4;
 		a += *str >> 4;
 		a *= 11;
@@ -111,9 +110,9 @@ static inline void ino_key_init(union ubifs_key *key, ino_t inum)
  */
 static inline void dent_key_init(const struct ubifs_info *c,
 				 union ubifs_key *key, ino_t inum,
-				 const struct qstr *nm)
+				 const void *name, int name_len)
 {
-	uint32_t hash = c->key_hash(nm->name, nm->len);
+	uint32_t hash = c->key_hash(name, name_len);
 
 	assert(!(hash & ~UBIFS_S_KEY_HASH_MASK));
 	key->u32[0] = inum;
@@ -208,6 +207,16 @@ static inline int keys_cmp(const union ubifs_key *key1,
 		return 1;
 
 	return 0;
+}
+
+/**
+ * key_type - get key type.
+ * @c: UBIFS file-system description object
+ * @key: key to get type of
+ */
+static inline int key_type(const union ubifs_key *key)
+{
+	return key->u32[1] >> UBIFS_S_KEY_BLOCK_BITS;
 }
 
 #endif /* !__UBIFS_KEY_H__ */

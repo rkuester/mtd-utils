@@ -160,7 +160,7 @@ retry:
 	if (buf != NULL)
 		free(buf);
 	close(outfd);
-	printf("Copied %zu bytes from address 0x%.8"PRIxoff_t" in flash to %s\n", len, offset, filename);
+	printf("Copied %zu bytes from address 0x%.8llx in flash to %s\n", len, (unsigned long long)offset, filename);
 	return 0;
 
 err2:
@@ -225,7 +225,7 @@ retry:
 	if (buf != NULL)
 		free(buf);
 	fclose(fp);
-	printf("Copied %d bytes from %s to address 0x%.8"PRIxoff_t" in flash\n", len, filename, offset);
+	printf("Copied %d bytes from %s to address 0x%.8llx in flash\n", len, filename, (unsigned long long)offset);
 	return 0;
 }
 
@@ -272,6 +272,7 @@ static int showinfo(int fd)
 			break;
 		case MTD_UBIVOLUME:
 			printf("MTD_UBIVOLUME");
+			break;
 		default:
 			printf("(unknown type - new MTD API maybe?)");
 	}
@@ -285,8 +286,6 @@ static int showinfo(int fd)
 		printf("MTD_CAP_NORFLASH");
 	else if (mtd.flags == MTD_CAP_NANDFLASH)
 		printf("MTD_CAP_NANDFLASH");
-	else if (mtd.flags == MTD_WRITEABLE)
-		printf("MTD_WRITEABLE");
 	else {
 		int first = 1;
 		static struct {
@@ -339,7 +338,7 @@ static int showinfo(int fd)
 	return 0;
 }
 
-static void showusage(void)
+static NORETURN void showusage(void)
 {
 	fprintf(stderr, "usage: %1$s info <device>\n"
 			"       %1$s read <device> <offset> <len> <dest-filename>\n"
