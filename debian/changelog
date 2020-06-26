@@ -1,3 +1,22 @@
+mtd-utils (1:2.1.1-1.1) unstable; urgency=medium
+
+  [ Bastian Germann ]
+  * Non-maintainer upload.
+  * Conflict with libssl-dev
+  * Add libmtd-dev and libubi-dev
+  * lib*-dev: Don't include private kernel header
+
+  [ Balint Reczey ]
+  * Add minimal Salsa CI config
+  * Enable unit tests
+  * Build-depend on libcmocka-dev
+  * Ignore test results on ppc64el because cmocka is broken there
+
+  [ Riku Voipio ]
+  * Disable test results everywhere
+
+ -- Bastian Germann <bastiangermann@fishpost.de>  Tue, 23 Jun 2020 18:03:00 +0200
+
 mtd-utils (1:2.1.1-1) unstable; urgency=medium
 
   [ Ondřej Nový ]
