@@ -5,6 +5,8 @@
 override_dh_auto_configure:
 	dh_auto_configure -- --enable-test --enable-unit-tests
 
-# ignore test results for now
+# tests are known to pass only on the listed architectures
+ifeq (,$(filter amd64 armel armhf arm64 i386 mipsel s390x x32,$(DEB_HOST_ARCH)))
 override_dh_auto_test:
 	-dh_auto_test
+endif
