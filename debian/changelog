@@ -3,6 +3,7 @@ mtd-utils (1:2.1.1-1.2) UNRELEASED; urgency=low
   * Trim trailing whitespace.
   * Bump debhelper from deprecated 9 to 12.
   * Set debhelper-compat version in Build-Depends.
+  * Drop unnecessary dependency on dh-autoreconf.
 
  -- Debian Janitor <janitor@jelmer.uk>  Mon, 27 Jul 2020 08:22:28 -0000
 
