@@ -5,6 +5,7 @@ mtd-utils (1:2.1.1-1.2) UNRELEASED; urgency=low
   * Set debhelper-compat version in Build-Depends.
   * Drop unnecessary dependency on dh-autoreconf.
   * Drop unnecessary dh arguments: --parallel
+  * Update standards version to 4.5.0, no changes needed.
 
  -- Debian Janitor <janitor@jelmer.uk>  Mon, 27 Jul 2020 08:22:28 -0000
 
