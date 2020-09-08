@@ -10,7 +10,7 @@ Vcs-Git: https://salsa.debian.org/debian/mtd-utils.git
 Vcs-Browser: https://salsa.debian.org/debian/mtd-utils
 
 Package: mtd-utils
-Architecture: any
+Architecture: linux-any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Multi-Arch: foreign
 Provides: mtd-tools
@@ -22,7 +22,7 @@ Description: Memory Technology Device Utilities
 
 Package: libmtd-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Depends: ${misc:Depends}
 Description: Memory Technology Device Development Libraries
  Development header and libraries for manipulating memory technology
@@ -30,7 +30,7 @@ Description: Memory Technology Device Development Libraries
 
 Package: libubi-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Depends: ${misc:Depends}
 Description: UBIFS Development Libraries
  Development header and libraries for manipulating unsorted block
