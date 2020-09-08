@@ -24,6 +24,7 @@ Package: libmtd-dev
 Section: libdevel
 Architecture: linux-any
 Depends: ${misc:Depends}
+Multi-Arch: same
 Description: Memory Technology Device Development Libraries
  Development header and libraries for manipulating memory technology
  devices, such as flash memory, Disk-On-Chip, or ROM.
@@ -32,6 +33,7 @@ Package: libubi-dev
 Section: libdevel
 Architecture: linux-any
 Depends: ${misc:Depends}
+Multi-Arch: same
 Description: UBIFS Development Libraries
  Development header and libraries for manipulating unsorted block
  image file systems.
