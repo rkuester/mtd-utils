@@ -1,5 +1,19 @@
-mtd-utils (1:2.1.1-1.2) UNRELEASED; urgency=low
+mtd-utils (1:2.1.2-0.1) unstable; urgency=medium
 
+  [ Bastian Germann ]
+  * Non-maintainer upload.
+  * Import new upstream version (Closes: #965155, #716414)
+  * Use arch:linux-any (Closes: #745187)
+  * Add d/watch with pubkey
+  * d/copyright: Convert to DEP-5
+  * d/copyright: Add new copyrights for 2.1.2
+  * Revert "lib*-dev: Don't include private kernel header"
+  * lib*-dev: Mark Multi-Arch: same (Closes: #965213)
+
+  [ Balint Reczey ]
+  * Ignore test results on architectures where tests are not known to pass
+
+  [ Debian Janitor ]
   * Trim trailing whitespace.
   * Bump debhelper from deprecated 9 to 12.
   * Set debhelper-compat version in Build-Depends.
@@ -7,7 +21,7 @@ mtd-utils (1:2.1.1-1.2) UNRELEASED; urgency=low
   * Drop unnecessary dh arguments: --parallel
   * Update standards version to 4.5.0, no changes needed.
 
- -- Debian Janitor <janitor@jelmer.uk>  Mon, 27 Jul 2020 08:22:28 -0000
+ -- Bastian Germann <bastiangermann@fishpost.de>  Tue, 08 Sep 2020 20:52:53 +0200
 
 mtd-utils (1:2.1.1-1.1) unstable; urgency=medium
 
