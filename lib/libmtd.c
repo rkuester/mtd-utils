@@ -217,6 +217,7 @@ static int read_hex_ll(const char *file, long long *value)
 	}
 	buf[rd] = '\0';
 
+	*value = 0;
 	if (sscanf(buf, "%llx\n", value) != 1) {
 		errmsg("cannot read integer from \"%s\"\n", file);
 		errno = EINVAL;
@@ -269,6 +270,7 @@ static int read_pos_ll(const char *file, long long *value)
 		goto out_error;
 	}
 
+	*value = 0;
 	if (sscanf(buf, "%lld\n", value) != 1) {
 		errmsg("cannot read integer from \"%s\"\n", file);
 		errno = EINVAL;
@@ -1140,6 +1142,7 @@ static int legacy_auto_oob_layout(const struct mtd_dev_info *mtd, int fd,
 		memcpy(oob + start, tmp_buf + start, len);
 	}
 
+	free(tmp_buf);
 	return 0;
 }
 

@@ -151,6 +151,7 @@ static char *xreadlink(const char *path)
 		readsize = readlink(path, buf, bufsize); /* 1st try */
 		if (readsize == -1) {
 			sys_errmsg("%s:%s", PROGRAM_NAME, path);
+			free(buf);
 			return NULL;
 		}
 	}
@@ -1771,9 +1772,7 @@ int main(int argc, char **argv)
 		}
 		out_fd = 1;
 	}
-	if (lstat(rootdir, &sb)) {
-		sys_errmsg_die("%s", rootdir);
-	}
+
 	if (chdir(rootdir))
 		sys_errmsg_die("%s", rootdir);
 

@@ -162,6 +162,7 @@ static void process_options(int argc, char * const argv[])
 				start_addr = simple_strtoll(optarg, &error);
 				break;
 			case 'f':
+				free(dumpfile);
 				dumpfile = xstrdup(optarg);
 				break;
 			case 'l':
@@ -361,8 +362,8 @@ int main(int argc, char * const argv[])
 		return errmsg("mtd_get_dev_info failed");
 
 	/* Allocate buffers */
-	oobbuf = xmalloc(sizeof(oobbuf) * mtd.oob_size);
-	readbuf = xmalloc(sizeof(readbuf) * mtd.min_io_size);
+	oobbuf = xmalloc(mtd.oob_size);
+	readbuf = xmalloc(mtd.min_io_size);
 
 	if (noecc)  {
 		if (ioctl(fd, MTDFILEMODE, MTD_FILE_MODE_RAW) != 0) {
@@ -548,7 +549,8 @@ int main(int argc, char * const argv[])
 
 closeall:
 	close(fd);
-	close(ofd);
+	if (ofd > 0 && ofd != STDOUT_FILENO)
+		close(ofd);
 	free(oobbuf);
 	free(readbuf);
 	exit(EXIT_FAILURE);
