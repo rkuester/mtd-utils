@@ -1,7 +1,8 @@
 Source: mtd-utils
 Section: utils
 Priority: optional
-Maintainer: Riku Voipio <riku.voipio@linaro.org>
+Maintainer: Bastian Germann <bastiangermann@fishpost.de>
+Uploaders: Riku Voipio <riku.voipio@linaro.org>
 Build-Depends: debhelper-compat (= 12), pkg-config, dh-exec (>= 0.3), zlib1g-dev, libacl1-dev, libcmocka-dev <!nocheck>, liblzo2-dev, uuid-dev, libzstd-dev
 Build-Conflicts: libssl-dev
 Standards-Version: 4.5.0
