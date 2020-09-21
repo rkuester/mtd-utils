@@ -18,8 +18,14 @@ Provides: mtd-tools
 Replaces: mtd-tools
 Description: Memory Technology Device Utilities
  Utilities for manipulating memory technology devices, such as flash
- memory, Disk-On-Chip, or ROM.  Includes mkfs.jffs2, a tool to create
- JFFS2 (journaling flash file system) filesystems.
+ memory, Disk-On-Chip, or ROM.  Includes the following tools:
+ docfdisk, doc_loadbios, flashcp, flash_erase, flash_eraseall, flash_lock,
+ flash_otp_dump, flash_otp_info, flash_otp_lock, flash_otp_write, flash_unlock,
+ ftl_check, ftl_format, jffs2dump, jffs2reader, lsmtd, mkfs.jffs2, mkfs.ubifs,
+ mtd_debug, mtdinfo, mtdpart, nanddump, nandtest, nandwrite, nftldump,
+ nftl_format, recv_image, rfddump, rfdformat, serve_image, sumtool, ubiattach,
+ ubiblock, ubicrc32, ubidetach, ubiformat, ubihealthd, ubimkvol, ubinfo,
+ ubinize, ubirename, ubirmvol, ubirsvol, ubiupdatevol.
 
 Package: libmtd-dev
 Section: libdevel
