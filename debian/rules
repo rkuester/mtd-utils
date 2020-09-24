@@ -5,8 +5,14 @@ export DEB_BUILD_MAINT_OPTIONS=hardening=+all
 %:
 	dh $@
 
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+CONFIGURE_ARGS = --enable-unit-tests
+else
+CONFIGURE_ARGS = --disable-unit-tests
+endif
+
 override_dh_auto_configure:
-	dh_auto_configure -- --enable-test --enable-unit-tests
+	dh_auto_configure -- $(CONFIGURE_ARGS)
 
 # tests are known to pass only on the listed architectures
 ifeq (,$(filter amd64 armel armhf arm64 i386 mipsel s390x x32,$(DEB_HOST_ARCH)))
