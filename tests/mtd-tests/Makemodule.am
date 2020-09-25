@@ -26,9 +26,13 @@ nandsubpagetest_SOURCES = tests/mtd-tests/nandsubpagetest.c
 nandsubpagetest_LDADD = libmtd.a
 nandsubpagetest_CPPFLAGS = $(AM_CPPFLAGS)
 
+shallowerasetest_SOURCES = tests/mtd-tests/shallowerasetest.c
+shallowerasetest_LDADD = libmtd.a libubi.a
+shallowerasetest_CPPFLAGS = $(AM_CPPFLAGS)
+
 MTDTEST_BINS = \
 	flash_torture flash_stress flash_speed nandbiterrs flash_readtest \
-	nandpagetest nandsubpagetest
+	nandpagetest nandsubpagetest shallowerasetest
 
 if INSTALL_TESTS
 pkglibexec_PROGRAMS += $(MTDTEST_BINS)
