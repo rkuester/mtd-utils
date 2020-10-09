@@ -28,14 +28,13 @@ static const char* usage =
 "\n"
 "Options:\n"
 "  -h, --help            Print this help.\n"
-"  -z, --zero            Write zeros to <range> prior to erase.\n"
-"  -p, --pattern         Write checkerboard to <range> prior to erase.\n"
+"  -n, --no-zero         Don't zero <range> prior to erase.\n"
 "  -s, --skip-deep       Skip deeply erasing block before testing\n"
 "  -b, --blocks <range>  The range of blocks to test (default: entire device)\n"
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
 "  -o  --overlap         Overlap writes-per-page to create maximum program disturb\n"
 "\n"
-"  e.g.: " PROGRAM_NAME " --zero --blocks 0:32 /dev/mtd2 p:0:2\n"
+"  e.g.: " PROGRAM_NAME " --blocks 0:32 /dev/mtd2 p:0:2\n"
 "\n"
 "Try to induce and detect bit flips caused by a shallow erase, a\n"
 "problem discovered on certain NAND chips whereby PEBs with relatively\n"
@@ -342,7 +341,6 @@ static unsigned count_ones(unsigned byte)
 struct params {
     const char* nodename;  // filename of MTD node
     bool zero;             // use zero for pre-erase pattern
-    bool pattern;          // use pattern (0x55) for pre-erase pattern
     bool skip_deep;        // skip deeply erasing block before test
     bool overlap;          // overlap writes_per_page for maximum program distrub
     const char* blockspec; // range of blocks to test
@@ -463,7 +461,7 @@ static int test(struct params* params)
         /* Write pre-erase data */
         if (params->zero) {
             rc = writer_write_fill(&writer, eb, &bytes, 0x00);
-        } else if (params->pattern) {
+        } else {
             rc = writer_write_fill(&writer, eb, &bytes, 0x55);
         }
         if (rc != SUCCESS) {
@@ -519,8 +517,7 @@ finish:
 
 static const struct option options[] = {
     {"help", no_argument, 0, 'h'},
-    {"zero", no_argument, 0, 'z'},
-    {"pattern", no_argument, 0, 'p'},
+    {"no-zero", no_argument, 0, 'n'},
     {"overlap", no_argument, 0, 'o'},
     {"blocks", required_argument, 0, 'b'},
     {"writes-per-page", required_argument, 0, 'w'},
@@ -537,18 +534,13 @@ int main(int argc, char** argv)
     params.writes_per_page = 1;
 
     while(1) {
-        c = getopt_long(argc, argv, "hzpsb:w:o", options, 0);
+        c = getopt_long(argc, argv, "nbs:w:oh", options, 0);
         if (c == -1)
             break;
 
         switch (c) {
-            case 'z':
-                params.zero = true;
-                params.pattern = false;
-                break;
-            case 'p':
+            case 'n':
                 params.zero = false;
-                params.pattern = true;
                 break;
             case 'b':
                 params.blockspec = optarg;
