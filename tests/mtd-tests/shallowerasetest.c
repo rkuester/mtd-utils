@@ -33,6 +33,7 @@ static const char* usage =
 "  -s, --skip-deep       Skip deeply erasing block before testing\n"
 "  -b, --blocks <range>  The range of blocks to test (default: entire device)\n"
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
+"  -o  --overlap         Overlap writes-per-page to create maximum program disturb\n"
 "\n"
 "  e.g.: " PROGRAM_NAME " --zero --blocks 0:32 /dev/mtd2 p:0:2\n"
 "\n"
@@ -268,6 +269,66 @@ static enum exit_status parse_range(const char* range, struct span* span, struct
     return rc;
 }
 
+static enum exit_status
+write_pattern(struct writer* writer, int eb, struct span* bytes, int writes_per_page, bool overlap)
+{
+    enum exit_status rc;
+
+    switch (writes_per_page) {
+    case 1:
+        rc = writer_write_fill(writer, eb, bytes, 0xaa);
+        break;
+    case 2:
+        if (overlap) {
+            rc = writer_write_fill(writer, eb, bytes, 0xee);
+            if (rc != SUCCESS)
+                break;
+            rc = writer_write_fill(writer, eb, bytes, 0xaa);
+        } else {
+            struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 2};
+            rc = writer_write_fill(writer, eb, &s1, 0xaa);
+            if (rc != SUCCESS)
+                break;
+            struct span s2 = {s1.end, s1.end + span_len(bytes) / 2};
+            rc = writer_write_fill(writer, eb, &s2, 0xaa);
+        }
+        break;
+    case 4:
+        if (overlap) {
+            rc = writer_write_fill(writer, eb, bytes, 0xfe);
+            if (rc != SUCCESS)
+                break;
+            rc = writer_write_fill(writer, eb, bytes, 0xee);
+            if (rc != SUCCESS)
+                break;
+            rc = writer_write_fill(writer, eb, bytes, 0xea);
+            if (rc != SUCCESS)
+                break;
+            rc = writer_write_fill(writer, eb, bytes, 0xaa);
+        } else {
+            struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 4};
+            rc = writer_write_fill(writer, eb, &s1, 0xaa);
+            if (rc != SUCCESS)
+                break;
+            struct span s2 = {s1.end, s1.end + span_len(bytes) / 4};
+            rc = writer_write_fill(writer, eb, &s2, 0xaa);
+            if (rc != SUCCESS)
+                break;
+            struct span s3 = {s2.end, s2.end + span_len(bytes) / 4};
+            rc = writer_write_fill(writer, eb, &s3, 0xaa);
+            if (rc != SUCCESS)
+                break;
+            struct span s4 = {s3.end, s3.end + span_len(bytes) / 4};
+            rc = writer_write_fill(writer, eb, &s4, 0xaa);
+        }
+        break;
+    default:
+        rc = FAILURE;
+    }
+
+    return rc;
+}
+
 static unsigned count_ones(unsigned byte)
 {
     int count;
@@ -283,6 +344,7 @@ struct params {
     bool zero;             // use zero for pre-erase pattern
     bool pattern;          // use pattern (0x55) for pre-erase pattern
     bool skip_deep;        // skip deeply erasing block before test
+    bool overlap;          // overlap writes_per_page for maximum program distrub
     const char* blockspec; // range of blocks to test
     const char* rangespec; // range within each block to test
     unsigned writes_per_page;
@@ -418,53 +480,10 @@ static int test(struct params* params)
         }
 
         /* Write test pattern to vulnerable bytes */
-        switch (params->writes_per_page) {
-        case 1:
-            rc = writer_write_fill(&writer, eb, &bytes, 0xaa);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: writing to PEB %d\n", eb);
-                goto finish;
-            }
-            break;
-        case 2:
-            rc = writer_write_fill(&writer, eb, &bytes, 0xee);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: writing to PEB %d\n", eb);
-                goto finish;
-            }
-            rc = writer_write_fill(&writer, eb, &bytes, 0xaa);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: writing to PEB %d\n", eb);
-                goto finish;
-            }
-            break;
-        case 4:
-            rc = writer_write_fill(&writer, eb, &bytes, 0xfe);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: writing to PEB %d\n", eb);
-                goto finish;
-            }
-            rc = writer_write_fill(&writer, eb, &bytes, 0xee);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: writing to PEB %d\n", eb);
-                goto finish;
-            }
-            rc = writer_write_fill(&writer, eb, &bytes, 0xea);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: writing to PEB %d\n", eb);
-                goto finish;
-            }
-            rc = writer_write_fill(&writer, eb, &bytes, 0xaa);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: writing to PEB %d\n", eb);
-                goto finish;
-            }
-            break;
-        default:
-            rc = FAILURE;
-            fprintf(stderr, "error: must only write 1, 2, or 4 times\n");
+        rc = write_pattern(&writer, eb, &bytes, params->writes_per_page, params->overlap);
+        if (rc != SUCCESS) {
+            fprintf(stderr, "error: writing to PEB %d\n", eb);
             goto finish;
-            
         }
 
         /* Read back the range and report any flipped bits */
@@ -502,6 +521,7 @@ static const struct option options[] = {
     {"help", no_argument, 0, 'h'},
     {"zero", no_argument, 0, 'z'},
     {"pattern", no_argument, 0, 'p'},
+    {"overlap", no_argument, 0, 'o'},
     {"blocks", required_argument, 0, 'b'},
     {"writes-per-page", required_argument, 0, 'w'},
     {"skip-deep", no_argument, 0, 's'},
@@ -517,7 +537,7 @@ int main(int argc, char** argv)
     params.writes_per_page = 1;
 
     while(1) {
-        c = getopt_long(argc, argv, "hzpsb:w:", options, 0);
+        c = getopt_long(argc, argv, "hzpsb:w:o", options, 0);
         if (c == -1)
             break;
 
@@ -544,6 +564,15 @@ int main(int argc, char** argv)
                     fputs(usage, stderr);
                     return EXIT_FAILURE;
                 }
+                if (params.writes_per_page != 1 
+                && params.writes_per_page != 2
+                && params.writes_per_page != 4) {
+                    fputs("error: must only write 1, 2, or 4 times\n", stderr);
+                    return EXIT_FAILURE;
+                }
+                break;
+            case 'o':
+                params.overlap = true;
                 break;
             case 'h':
                 fputs(usage, stdout);
