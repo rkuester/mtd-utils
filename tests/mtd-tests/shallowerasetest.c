@@ -30,6 +30,7 @@ static const char* usage =
 "  -h, --help            Print this help.\n"
 "  -z, --zero            Write zeros to <range> prior to erase.\n"
 "  -p, --pattern         Write checkerboard to <range> prior to erase.\n"
+"  -s, --skip-deep       Skip deeply erasing block before testing\n"
 "  -b, --blocks <range>  The range of blocks to test (default: entire device)\n"
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
 "\n"
@@ -281,6 +282,7 @@ struct params {
     const char* nodename;  // filename of MTD node
     bool zero;             // use zero for pre-erase pattern
     bool pattern;          // use pattern (0x55) for pre-erase pattern
+    bool skip_deep;        // skip deeply erasing block before test
     const char* blockspec; // range of blocks to test
     const char* rangespec; // range within each block to test
     unsigned writes_per_page;
@@ -379,13 +381,16 @@ static int test(struct params* params)
         }
 
         /* Zero and erase the block to establish a clean block. */
-        struct span entire = {0, info.eb_size};
-        rc = writer_write_fill(&writer, eb, &entire, 0x00);
-        if (rc != SUCCESS) {
-            fprintf(stderr, "error: initially zeroing PEB %d\n", eb);
-            rc = IOERROR;
-            goto finish;
+        if (!params->skip_deep) {
+            struct span entire = {0, info.eb_size};
+            rc = writer_write_fill(&writer, eb, &entire, 0x00);
+            if (rc != SUCCESS) {
+                fprintf(stderr, "error: initially zeroing PEB %d\n", eb);
+                rc = IOERROR;
+                goto finish;
+            }
         }
+
         rc = mtd_erase(libmtd, &info, fd, eb);
         if (rc) {
             fprintf(stderr, "error: initially erasing PEB %d\n", eb);
@@ -499,6 +504,7 @@ static const struct option options[] = {
     {"pattern", no_argument, 0, 'p'},
     {"blocks", required_argument, 0, 'b'},
     {"writes-per-page", required_argument, 0, 'w'},
+    {"skip-deep", no_argument, 0, 's'},
     {0, 0, 0, 0},
 };
 
@@ -511,7 +517,7 @@ int main(int argc, char** argv)
     params.writes_per_page = 1;
 
     while(1) {
-        c = getopt_long(argc, argv, "hzpb:w:", options, 0);
+        c = getopt_long(argc, argv, "hzpsb:w:", options, 0);
         if (c == -1)
             break;
 
@@ -526,6 +532,9 @@ int main(int argc, char** argv)
                 break;
             case 'b':
                 params.blockspec = optarg;
+                break;
+            case 's':
+                params.skip_deep = true;
                 break;
             case 'w':
                 errno = 0;
