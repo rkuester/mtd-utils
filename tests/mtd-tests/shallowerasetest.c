@@ -339,13 +339,14 @@ static unsigned count_ones(unsigned byte)
 }
 
 struct params {
-    const char* nodename;  // filename of MTD node
-    bool zero;             // use zero for pre-erase pattern
-    bool skip_deep;        // skip deeply erasing block before test
-    bool overlap;          // overlap writes_per_page for maximum program distrub
-    const char* blockspec; // range of blocks to test
-    const char* rangespec; // range within each block to test
-    unsigned writes_per_page;
+    const char* nodename;      // filename of MTD node
+    bool zero;                 // use zero for pre-erase pattern
+    bool skip_deep;            // skip deeply erasing block before test
+    bool overlap;              // overlap writes_per_page for maximum program distrub
+    const char* blockspec;     // range of blocks to test
+    const char* rangespec;     // range within each block to test
+    unsigned writes_per_page;  
+    bool write_entire_block;   // write test pattern to entire block, not just test range
 };
 
 static int test(struct params* params)
@@ -477,8 +478,15 @@ static int test(struct params* params)
             goto finish;
         }
 
-        /* Write test pattern to vulnerable bytes */
-        rc = write_pattern(&writer, eb, &bytes, params->writes_per_page, params->overlap);
+        /* Write test pattern */
+        struct span write_bytes;
+        if (params->write_entire_block) {
+            write_bytes.begin = 0;
+            write_bytes.end = info.eb_size;
+        } else {
+            write_bytes = bytes;
+        }
+        rc = write_pattern(&writer, eb, &write_bytes, params->writes_per_page, params->overlap);
         if (rc != SUCCESS) {
             fprintf(stderr, "error: writing to PEB %d\n", eb);
             goto finish;
@@ -519,6 +527,7 @@ static const struct option options[] = {
     {"help", no_argument, 0, 'h'},
     {"no-zero", no_argument, 0, 'n'},
     {"overlap", no_argument, 0, 'o'},
+    {"write-entire-block", no_argument, 0, 'e'},
     {"blocks", required_argument, 0, 'b'},
     {"writes-per-page", required_argument, 0, 'w'},
     {"skip-deep", no_argument, 0, 's'},
@@ -534,7 +543,7 @@ int main(int argc, char** argv)
     params.writes_per_page = 1;
 
     while(1) {
-        c = getopt_long(argc, argv, "nbs:w:oh", options, 0);
+        c = getopt_long(argc, argv, "noebs:w:h", options, 0);
         if (c == -1)
             break;
 
@@ -544,6 +553,9 @@ int main(int argc, char** argv)
                 break;
             case 'b':
                 params.blockspec = optarg;
+                break;
+            case 'e':
+                params.write_entire_block = true;
                 break;
             case 's':
                 params.skip_deep = true;
