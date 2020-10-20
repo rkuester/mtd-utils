@@ -14,6 +14,9 @@
 #include <libmtd.h>
 
 #define PROGRAM_NAME "shallowerasetest"
+#include "common.h"
+#undef round_down
+#undef round_up
 
 static const char* usage =
 "Usage: " PROGRAM_NAME " [OPTIONS] <mtd_device> <range>\n"
@@ -329,6 +332,29 @@ write_pattern(struct writer* writer, int eb, struct span* bytes, int writes_per_
     return rc;
 }
 
+struct histogram {
+    unsigned long long flips[1 + 16];
+    unsigned long long overflow;
+    unsigned long long bad;
+    unsigned long long blocks;
+};
+
+static void histogram_reset(struct histogram* h)
+{
+    memset(h, 0, sizeof(*h));
+}
+
+static void histogram_print(struct histogram* h)
+{
+    printf("FLIPS: GROUPS\n");
+    for(int i = 0; i < ARRAY_SIZE(h->flips); ++i) {
+        printf("%3d: %llu\n", i, h->flips[i]);
+    }
+    printf(">16: %llu\n", h->overflow);
+    printf("bad blocks: %llu\n", h->bad);
+    printf("total blocks: %llu\n", h->blocks);
+}
+
 static unsigned count_ones(unsigned byte)
 {
     int count;
@@ -360,7 +386,8 @@ static int test(struct params* params)
     memset(&writer, 0, sizeof(writer));
     struct reader reader;
     memset(&reader, 0, sizeof(reader));
-    unsigned total = 0;
+    struct histogram histogram;
+    histogram_reset(&histogram);
 
 	libmtd = libmtd_open();
 	if (!libmtd) {
@@ -436,6 +463,7 @@ static int test(struct params* params)
          /* Skip bad blocks */
 		rc = mtd_is_bad(&info, fd, eb);
 		if (rc == 1) {
+            ++histogram.bad;
 			continue;
 		} else if (rc == -1) {
             fprintf(stderr, "error: reading bad-block state of PEB %d\n", eb);
@@ -501,28 +529,31 @@ static int test(struct params* params)
             goto finish;
         }
 
-        const unsigned group_size = 512;
-        unsigned flipped = 0;
-
-        for (unsigned byte = bytes.begin; byte < bytes.end; ++byte) {
+        for (unsigned byte = bytes.begin, flipped = 0; byte < bytes.end; ++byte) {
             flipped += count_ones(0xaa ^ reader.blockbuf[byte]);
 
-            if ((byte + 1) % group_size == 0) {
+            if ((byte + 1) % params->group_size == 0) {
+                if (flipped <= 16) {
+                    histogram.flips[flipped] += 1;
+                } else {
+                    histogram.overflow += 1;
+                }
+
                 if (flipped > 0) {
-                    printf("%d: %d bit-flips in group 0x%x--0x%x\n",
-                           total, flipped, byte - group_size + 1, byte);
+                    printf("%llu: %d bit-flips in %d[0x%x--0x%x]\n",
+                           histogram.blocks, flipped, eb, byte - params->group_size + 1, byte);
                 }
 
                 flipped = 0;
             }
         }
 
-        if (++total % 1024 == 0) {
-            printf("%d: starting block %d\n", total, eb);
+        if (++histogram.blocks % 1024 == 0) {
+            printf("%llu: starting block %d\n", histogram.blocks, eb);
         }
     }
 
-    printf("%d: total blocks tested\n", total);
+    histogram_print(&histogram);
 
 finish:
     reader_free(&reader);
