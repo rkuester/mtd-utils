@@ -287,7 +287,7 @@ write_pattern(struct writer* writer, int eb, struct span* bytes, int writes_per_
             rc = writer_write_fill(writer, eb, bytes, 0xee);
             if (rc != SUCCESS)
                 break;
-            rc = writer_write_fill(writer, eb, bytes, 0xaa);
+            rc = writer_write_fill(writer, eb, bytes, 0xbb);
         } else {
             struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 2};
             rc = writer_write_fill(writer, eb, &s1, 0xaa);
@@ -302,13 +302,13 @@ write_pattern(struct writer* writer, int eb, struct span* bytes, int writes_per_
             rc = writer_write_fill(writer, eb, bytes, 0xfe);
             if (rc != SUCCESS)
                 break;
-            rc = writer_write_fill(writer, eb, bytes, 0xee);
+            rc = writer_write_fill(writer, eb, bytes, 0xef);
             if (rc != SUCCESS)
                 break;
-            rc = writer_write_fill(writer, eb, bytes, 0xea);
+            rc = writer_write_fill(writer, eb, bytes, 0xfb);
             if (rc != SUCCESS)
                 break;
-            rc = writer_write_fill(writer, eb, bytes, 0xaa);
+            rc = writer_write_fill(writer, eb, bytes, 0xbf);
         } else {
             struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 4};
             rc = writer_write_fill(writer, eb, &s1, 0xaa);
