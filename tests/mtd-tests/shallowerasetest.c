@@ -33,6 +33,7 @@ static const char* usage =
 "  -b, --blocks <range>  The range of blocks to test (default: entire device)\n"
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
 "  -o  --overlap         Overlap writes-per-page to create maximum program disturb\n"
+"  -g  --group-size      Bytes to group together for reporting (default: 512)\n"
 "\n"
 "  e.g.: " PROGRAM_NAME " --blocks 0:32 /dev/mtd2 p:0:2\n"
 "\n"
@@ -347,6 +348,7 @@ struct params {
     const char* rangespec;     // range within each block to test
     unsigned writes_per_page;  
     bool write_entire_block;   // write test pattern to entire block, not just test range
+    unsigned group_size;       // bytes to group together for reporting
 };
 
 static int test(struct params* params)
@@ -358,7 +360,7 @@ static int test(struct params* params)
     memset(&writer, 0, sizeof(writer));
     struct reader reader;
     memset(&reader, 0, sizeof(reader));
-    int total = 0;
+    unsigned total = 0;
 
 	libmtd = libmtd_open();
 	if (!libmtd) {
@@ -498,12 +500,20 @@ static int test(struct params* params)
             fprintf(stderr, "error: reading PEB %d\n", eb);
             goto finish;
         }
-        for (int byte = bytes.begin; byte < bytes.end; ++byte) {
-            if (reader.blockbuf[byte] != 0xaa) {
-                unsigned flipped = count_ones(0xaa ^ reader.blockbuf[byte]);
-                printf("%d: %d %s at %d[%d][%d] 0x%x != 0xaa\n",
-                        total, flipped, flipped > 1 ? "flipped-bits" : "flipped-bit", eb,
-                        byte / info.min_io_size, byte % info.min_io_size, reader.blockbuf[byte]);
+
+        const unsigned group_size = 512;
+        unsigned flipped = 0;
+
+        for (unsigned byte = bytes.begin; byte < bytes.end; ++byte) {
+            flipped += count_ones(0xaa ^ reader.blockbuf[byte]);
+
+            if ((byte + 1) % group_size == 0) {
+                if (flipped > 0) {
+                    printf("%d: %d bit-flips in group 0x%x--0x%x\n",
+                           total, flipped, byte - group_size + 1, byte);
+                }
+
+                flipped = 0;
             }
         }
 
@@ -530,6 +540,7 @@ static const struct option options[] = {
     {"write-entire-block", no_argument, 0, 'e'},
     {"blocks", required_argument, 0, 'b'},
     {"writes-per-page", required_argument, 0, 'w'},
+    {"group-size", required_argument, 0, 'g'},
     {"skip-deep", no_argument, 0, 's'},
     {0, 0, 0, 0},
 };
@@ -541,9 +552,10 @@ int main(int argc, char** argv)
     memset(&params, 0, sizeof(params));
     params.zero = true;
     params.writes_per_page = 1;
+    params.group_size = 512;
 
     while(1) {
-        c = getopt_long(argc, argv, "noebs:w:h", options, 0);
+        c = getopt_long(argc, argv, "noebs:w:g:h", options, 0);
         if (c == -1)
             break;
 
@@ -572,6 +584,14 @@ int main(int argc, char** argv)
                 && params.writes_per_page != 2
                 && params.writes_per_page != 4) {
                     fputs("error: must only write 1, 2, or 4 times\n", stderr);
+                    return EXIT_FAILURE;
+                }
+                break;
+            case 'g':
+                params.group_size = strtol(optarg, 0, 0);
+                if (errno) {
+                    fputs("error: bad argument to --group-size\n", stderr);
+                    fputs(usage, stderr);
                     return EXIT_FAILURE;
                 }
                 break;
