@@ -37,6 +37,7 @@ static const char* usage =
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
 "  -o  --overlap         Overlap writes-per-page to create maximum program disturb\n"
 "  -g  --group-size      Bytes to group together for reporting (default: 512)\n"
+"  -c  --count           Stop after count blocks (default: never)\n"
 "\n"
 "  e.g.: " PROGRAM_NAME " --blocks 0:32 /dev/mtd2 p:0:2\n"
 "\n"
@@ -375,6 +376,7 @@ struct params {
     unsigned writes_per_page;  
     bool write_entire_block;   // write test pattern to entire block, not just test range
     unsigned group_size;       // bytes to group together for reporting
+    unsigned count;            // stop after count blocks (if zero don't stop)
 };
 
 static int test(struct params* params)
@@ -459,7 +461,11 @@ static int test(struct params* params)
     signal(SIGINT, set_exit_flag);
 
     /* For each block in the range */
-    for (int eb = blocks.begin; !exit_flag; eb = (eb >= blocks.end - 1) ? blocks.begin : eb + 1) {
+    for (int eb = blocks.begin;
+        !exit_flag && (params->count == 0 || (histogram.blocks < params->count));
+        eb = (eb >= blocks.end - 1) ? blocks.begin : eb + 1)
+    {
+
          /* Skip bad blocks */
 		rc = mtd_is_bad(&info, fd, eb);
 		if (rc == 1) {
@@ -573,6 +579,7 @@ static const struct option options[] = {
     {"writes-per-page", required_argument, 0, 'w'},
     {"group-size", required_argument, 0, 'g'},
     {"skip-deep", no_argument, 0, 's'},
+    {"count", required_argument, 0, 'c'},
     {0, 0, 0, 0},
 };
 
@@ -586,7 +593,7 @@ int main(int argc, char** argv)
     params.group_size = 512;
 
     while(1) {
-        c = getopt_long(argc, argv, "noebs:w:g:h", options, 0);
+        c = getopt_long(argc, argv, "noebs:w:g:c:h", options, 0);
         if (c == -1)
             break;
 
@@ -628,6 +635,14 @@ int main(int argc, char** argv)
                 break;
             case 'o':
                 params.overlap = true;
+                break;
+            case 'c':
+                params.count = strtol(optarg, 0, 0);
+                if (errno) {
+                    fputs("error: bad argument to --count\n", stderr);
+                    fputs(usage, stderr);
+                    return EXIT_FAILURE;
+                }
                 break;
             case 'h':
                 fputs(usage, stdout);
