@@ -445,7 +445,7 @@ static int test(struct params* params)
         blocks.end = info.eb_cnt;
     }
 
-    printf("testing blocks %d:%d at p:%d[%d]:%d[%d]\n",
+    printf("testing b:%d:%d at p:%d[%d]:%d[%d]\n",
             blocks.begin, blocks.end,
             bytes.begin / info.min_io_size, bytes.begin % info.min_io_size,
             bytes.end / info.min_io_size, bytes.end % info.min_io_size);
@@ -546,8 +546,13 @@ static int test(struct params* params)
                 }
 
                 if (flipped > 0) {
-                    printf("%llu: %d bit-flips in %d[0x%x--0x%x]\n",
-                           histogram.blocks, flipped, eb, byte - params->group_size + 1, byte);
+                    printf("%llu: %d bit-flips in b:%d[%d][0x%x:0x%x]\n",
+                           histogram.blocks,
+                           flipped,
+                           eb,
+                           byte / info.min_io_size,
+                           (byte - params->group_size + 1) % info.min_io_size,
+                           (byte - params->group_size + 1) % info.min_io_size + params->group_size);
                 }
 
                 flipped = 0;
