@@ -445,7 +445,7 @@ static int test(struct params* params)
         blocks.end = info.eb_cnt;
     }
 
-    printf("testing b:%d:%d at p:%d[%d]:%d[%d]\n",
+    printf("testing blocks %d:%d at pages %d[%d]:%d[%d]\n",
             blocks.begin, blocks.end,
             bytes.begin / info.min_io_size, bytes.begin % info.min_io_size,
             bytes.end / info.min_io_size, bytes.end % info.min_io_size);
