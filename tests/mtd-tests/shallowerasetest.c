@@ -32,6 +32,7 @@ static const char* usage =
 "Options:\n"
 "  -h, --help            Print this help.\n"
 "  -n, --no-zero         Don't zero <range> prior to erase.\n"
+"  -e, --even-only       Zero only evenly indexed blocks in <range> prior to erase\n"
 "  -s, --skip-deep       Skip deeply erasing block before testing\n"
 "  -b, --blocks <range>  The range of blocks to test (default: entire device)\n"
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
@@ -56,6 +57,7 @@ enum exit_status {
 struct span {
     int begin;
     int end;
+    bool even_only;
 };
 
 inline size_t span_len(struct span* s)
@@ -108,6 +110,11 @@ inline int round_up(int add, int size)
     }
 }
 
+inline bool is_on_even_page(int add, int size)
+{
+    return add / size % 2 == 0;
+}
+
 static enum exit_status
 writer_write_fill(struct writer* writer, int eb, struct span* bytes, uint8_t val)
 {
@@ -124,6 +131,10 @@ writer_write_fill(struct writer* writer, int eb, struct span* bytes, uint8_t val
         }
 
         if ((byte + 1) % page_size == 0) { // last byte in page
+            if (bytes->even_only && !is_on_even_page(byte, page_size)) {
+                continue;
+            }
+
             int err = mtd_write(writer->libmtd, writer->info, writer->fd, eb,
                     round_down(byte, page_size), writer->pagebuf, page_size, 0, 0, 0);
             if (err) {
@@ -289,11 +300,11 @@ write_pattern(struct writer* writer, int eb, struct span* bytes, int writes_per_
                 break;
             rc = writer_write_fill(writer, eb, bytes, 0xbb);
         } else {
-            struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 2};
+            struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 2, bytes->even_only};
             rc = writer_write_fill(writer, eb, &s1, 0xaa);
             if (rc != SUCCESS)
                 break;
-            struct span s2 = {s1.end, s1.end + span_len(bytes) / 2};
+            struct span s2 = {s1.end, s1.end + span_len(bytes) / 2, bytes->even_only};
             rc = writer_write_fill(writer, eb, &s2, 0xaa);
         }
         break;
@@ -310,19 +321,19 @@ write_pattern(struct writer* writer, int eb, struct span* bytes, int writes_per_
                 break;
             rc = writer_write_fill(writer, eb, bytes, 0xbf);
         } else {
-            struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 4};
+            struct span s1 = {bytes->begin, bytes->begin + span_len(bytes) / 4, bytes->even_only};
             rc = writer_write_fill(writer, eb, &s1, 0xaa);
             if (rc != SUCCESS)
                 break;
-            struct span s2 = {s1.end, s1.end + span_len(bytes) / 4};
+            struct span s2 = {s1.end, s1.end + span_len(bytes) / 4, bytes->even_only};
             rc = writer_write_fill(writer, eb, &s2, 0xaa);
             if (rc != SUCCESS)
                 break;
-            struct span s3 = {s2.end, s2.end + span_len(bytes) / 4};
+            struct span s3 = {s2.end, s2.end + span_len(bytes) / 4, bytes->even_only};
             rc = writer_write_fill(writer, eb, &s3, 0xaa);
             if (rc != SUCCESS)
                 break;
-            struct span s4 = {s3.end, s3.end + span_len(bytes) / 4};
+            struct span s4 = {s3.end, s3.end + span_len(bytes) / 4, bytes->even_only};
             rc = writer_write_fill(writer, eb, &s4, 0xaa);
         }
         break;
@@ -377,6 +388,7 @@ struct params {
     bool write_entire_block;   // write test pattern to entire block, not just test range
     unsigned group_size;       // bytes to group together for reporting
     unsigned count;            // stop after count blocks (if zero don't stop)
+    unsigned even_only;
 };
 
 static int test(struct params* params)
@@ -427,6 +439,7 @@ static int test(struct params* params)
 	}
 
     struct span bytes;
+    bytes.even_only = params->even_only;
     rc = parse_range(params->rangespec, &bytes, &info);
     if (rc != SUCCESS) {
 		fprintf(stderr, "error: invalid page or byte range\n");
@@ -445,10 +458,11 @@ static int test(struct params* params)
         blocks.end = info.eb_cnt;
     }
 
-    printf("testing blocks %d:%d at pages %d[%d]:%d[%d]\n",
+    printf("testing blocks %d:%d at pages %d[%d]:%d[%d]%s\n",
             blocks.begin, blocks.end,
             bytes.begin / info.min_io_size, bytes.begin % info.min_io_size,
-            bytes.end / info.min_io_size, bytes.end % info.min_io_size);
+            bytes.end / info.min_io_size, bytes.end % info.min_io_size,
+            params->even_only ? " only even pages" : "");
 
     rc = writer_init(&writer, libmtd, &info, fd);
     if (rc != SUCCESS)
@@ -479,7 +493,7 @@ static int test(struct params* params)
 
         /* Zero and erase the block to establish a clean block. */
         if (!params->skip_deep) {
-            struct span entire = {0, info.eb_size};
+            struct span entire = {0, info.eb_size, false};
             rc = writer_write_fill(&writer, eb, &entire, 0x00);
             if (rc != SUCCESS) {
                 fprintf(stderr, "error: initially zeroing PEB %d\n", eb);
@@ -515,12 +529,10 @@ static int test(struct params* params)
         }
 
         /* Write test pattern */
-        struct span write_bytes;
+        struct span write_bytes = bytes;
         if (params->write_entire_block) {
             write_bytes.begin = 0;
             write_bytes.end = info.eb_size;
-        } else {
-            write_bytes = bytes;
         }
         rc = write_pattern(&writer, eb, &write_bytes, params->writes_per_page, params->overlap);
         if (rc != SUCCESS) {
@@ -536,7 +548,9 @@ static int test(struct params* params)
         }
 
         for (unsigned byte = bytes.begin, flipped = 0; byte < bytes.end; ++byte) {
-            flipped += count_ones(0xaa ^ reader.blockbuf[byte]);
+            if (!bytes.even_only || is_on_even_page(byte, info.min_io_size)) {
+                flipped += count_ones(0xaa ^ reader.blockbuf[byte]);
+            }
 
             if ((byte + 1) % params->group_size == 0) {
                 if (flipped <= 16) {
@@ -579,7 +593,8 @@ static const struct option options[] = {
     {"help", no_argument, 0, 'h'},
     {"no-zero", no_argument, 0, 'n'},
     {"overlap", no_argument, 0, 'o'},
-    {"write-entire-block", no_argument, 0, 'e'},
+    {"write-entire-block", no_argument, 0, 'a'},
+    {"even-only", no_argument, 0, 'e'},
     {"blocks", required_argument, 0, 'b'},
     {"writes-per-page", required_argument, 0, 'w'},
     {"group-size", required_argument, 0, 'g'},
@@ -598,7 +613,7 @@ int main(int argc, char** argv)
     params.group_size = 512;
 
     while(1) {
-        c = getopt_long(argc, argv, "noebs:w:g:c:h", options, 0);
+        c = getopt_long(argc, argv, "noaebs:w:g:c:h", options, 0);
         if (c == -1)
             break;
 
@@ -609,8 +624,11 @@ int main(int argc, char** argv)
             case 'b':
                 params.blockspec = optarg;
                 break;
-            case 'e':
+            case 'a':
                 params.write_entire_block = true;
+                break;
+            case 'e':
+                params.even_only = true;
                 break;
             case 's':
                 params.skip_deep = true;
