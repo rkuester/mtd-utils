@@ -38,7 +38,7 @@ static const char* usage =
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
 "  -o  --overlap         Overlap writes-per-page to create maximum program disturb\n"
 "  -g  --group-size      Bytes to group together for reporting (default: 512)\n"
-"  -c  --count           Stop after count blocks (default: never)\n"
+"  -c  --count           Stop after count passes (default: never)\n"
 "\n"
 "  e.g.: " PROGRAM_NAME " --blocks 0:32 /dev/mtd2 p:0:2\n"
 "\n"
@@ -476,7 +476,7 @@ static int test(struct params* params)
 
     /* For each block in the range */
     for (int eb = blocks.begin;
-        !exit_flag && (params->count == 0 || (histogram.blocks < params->count));
+        !exit_flag && (histogram.blocks / blocks.end < params->count);
         eb = (eb >= blocks.end - 1) ? blocks.begin : eb + 1)
     {
 
@@ -661,7 +661,7 @@ int main(int argc, char** argv)
                 break;
             case 'c':
                 params.count = strtol(optarg, 0, 0);
-                if (errno) {
+                if (errno || params.count == 0) {
                     fputs("error: bad argument to --count\n", stderr);
                     fputs(usage, stderr);
                     return EXIT_FAILURE;
