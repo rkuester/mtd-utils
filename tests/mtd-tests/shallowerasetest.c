@@ -34,6 +34,7 @@ static const char* usage =
 "  -n, --no-zero         Don't zero <range> prior to erase.\n"
 "  -e, --even-only       Zero only evenly indexed blocks in <range> prior to erase\n"
 "  -s, --skip-deep       Skip deeply erasing block before testing\n"
+"  -p, --no-preerase     Don't erase blocks at all before testing\n"
 "  -b, --blocks <range>  The range of blocks to test (default: entire device)\n"
 "  -w  --writes-per-page <1|2|4> make 1, 2, or 4 overlapping partial writes within page\n"
 "  -o  --overlap         Overlap writes-per-page to create maximum program disturb\n"
@@ -380,7 +381,8 @@ static unsigned count_ones(unsigned byte)
 struct params {
     const char* nodename;      // filename of MTD node
     bool zero;                 // use zero for pre-erase pattern
-    bool skip_deep;            // skip deeply erasing block before test
+    bool skip_deep;            // skip *deeply* erasing block before test
+    bool preerase;             // erase block before test
     bool overlap;              // overlap writes_per_page for maximum program distrub
     const char* blockspec;     // range of blocks to test
     const char* rangespec;     // range within each block to test
@@ -491,32 +493,34 @@ static int test(struct params* params)
             goto finish;
         }
 
-        /* Zero and erase the block to establish a clean block. */
-        if (!params->skip_deep) {
-            struct span entire = {0, info.eb_size, false};
-            rc = writer_write_fill(&writer, eb, &entire, 0x00);
-            if (rc != SUCCESS) {
-                fprintf(stderr, "error: initially zeroing PEB %d\n", eb);
+        if (params->preerase) {
+            /* Zero and erase the block to establish a clean block. */
+            if (!params->skip_deep) {
+                struct span entire = {0, info.eb_size, false};
+                rc = writer_write_fill(&writer, eb, &entire, 0x00);
+                if (rc != SUCCESS) {
+                    fprintf(stderr, "error: initially zeroing PEB %d\n", eb);
+                    rc = IOERROR;
+                    goto finish;
+                }
+            }
+
+            rc = mtd_erase(libmtd, &info, fd, eb);
+            if (rc) {
+                fprintf(stderr, "error: initially erasing PEB %d\n", eb);
                 rc = IOERROR;
                 goto finish;
             }
         }
 
-        rc = mtd_erase(libmtd, &info, fd, eb);
-        if (rc) {
-            fprintf(stderr, "error: initially erasing PEB %d\n", eb);
-            rc = IOERROR;
-            goto finish;
-        }
-
-        /* Write pre-erase data */
+        /* Program what will potentially become shallow bits */
         if (params->zero) {
             rc = writer_write_fill(&writer, eb, &bytes, 0x00);
         } else {
             rc = writer_write_fill(&writer, eb, &bytes, 0x55);
         }
         if (rc != SUCCESS) {
-            fprintf(stderr, "error: writing pre-erase pattern to PEB %d\n", eb);
+            fprintf(stderr, "error: writing initial pattern to PEB %d\n", eb);
             goto finish;
         }
 
@@ -599,6 +603,7 @@ static const struct option options[] = {
     {"writes-per-page", required_argument, 0, 'w'},
     {"group-size", required_argument, 0, 'g'},
     {"skip-deep", no_argument, 0, 's'},
+    {"no-preerase", no_argument, 0, 'p'},
     {"count", required_argument, 0, 'c'},
     {0, 0, 0, 0},
 };
@@ -609,6 +614,7 @@ int main(int argc, char** argv)
     struct params params;
     memset(&params, 0, sizeof(params));
     params.zero = true;
+    params.preerase = true;
     params.writes_per_page = 1;
     params.group_size = 512;
 
@@ -632,6 +638,9 @@ int main(int argc, char** argv)
                 break;
             case 's':
                 params.skip_deep = true;
+                break;
+            case 'p':
+                params.preerase = false;
                 break;
             case 'w':
                 errno = 0;
